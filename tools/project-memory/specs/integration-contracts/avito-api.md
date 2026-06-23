@@ -40,6 +40,7 @@ The official API catalog exposes these relevant sections for the MVP:
 
 - `auth`: token retrieval and refresh;
 - `user`: authorized account information, balance, and operation history;
+- `item`/`stats`: item metadata and aggregated item counters;
 - `messenger`: chats, messages, message sending, read marks, webhooks, images,
   voice files, and blacklist;
 - `accounts-hierarchy`: company/employee account checks and related operations,
@@ -63,6 +64,34 @@ MVP:
 - voice file retrieval;
 - blacklist operations;
 - subscription listing.
+
+## Item Statistics
+
+Use `POST /stats/v1/accounts/{user_id}/items` for per-listing aggregated
+statistics.
+
+Observed/SDK-documented request contract:
+
+- `itemIds`: 1 to 200 listing ids;
+- `dateFrom`: start date in `YYYY-MM-DD`;
+- `dateTo`: end date in `YYYY-MM-DD`;
+- `periodGrouping`: `day`, `week`, or `month`; use `day` for calendar views;
+- `fields`: counters such as `uniqViews`, `uniqContacts`, and
+  `uniqFavorites`.
+
+Documented limits and behavior:
+
+- max 200 item ids per request;
+- lookback depth is limited to 270 days;
+- legacy `views`, `contacts`, and `favorites` counters are deprecated; prefer
+  `uniqViews`, `uniqContacts`, and `uniqFavorites`;
+- the method returns aggregated counters. It does not expose the individual
+  Avito users who viewed an item.
+
+For user-level links in the manager UI, use Messenger chat participant/profile
+fields when Avito returns them, such as `buyer.profile_url`, `client.url`,
+participant `profile_url`, `url`, or `public_user_profile.url`. Do not infer a
+viewer identity from item view counters.
 
 ## Auth
 

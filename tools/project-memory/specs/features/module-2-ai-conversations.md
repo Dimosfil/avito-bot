@@ -72,11 +72,12 @@ First runnable slice:
   seller has already greeted the client.
 - The manager UI shows Avito messages chronologically with day separators,
   per-message time, clear sender roles, and explicit start/latest markers.
-- The manager UI has a per-chat `AI mode` checkbox that is enabled by default.
-  When `AI mode` is unchecked for a chat, the backend stores that chat as a
-  manager takeover and the auto-reply worker must skip it even if it has unread
-  inbound messages; the manager can still send manual Avito messages from the
-  conversation panel.
+- The manager UI has a per-chat `Ручной режим` checkbox that is disabled until a
+  chat is selected. When `Ручной режим` is checked for a chat, the backend stores
+  that chat as a manager takeover and the auto-reply worker must skip it even if
+  it has unread inbound messages; the manager can still send manual Avito
+  messages from the conversation panel. Other chats remain eligible for bot
+  replies.
 - The UI loads Avito chats by default after confirming credentials are present.
 - The UI can enable a backend auto-reply worker. The worker polls Avito from the
   server every few seconds, so automatic replies do not depend on the manager

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,14 @@ class DraftReplyRequest(BaseModel):
 
 class ChatBotControlRequest(BaseModel):
     manager_takeover: bool
+
+
+class ItemStatsRequest(BaseModel):
+    item_ids: list[int] = Field(min_length=1, max_length=200)
+    date_from: date
+    date_to: date
+    period_grouping: str = Field(default="day", pattern="^(day|week|month)$")
+    fields: list[str] = Field(default_factory=lambda: ["uniqViews", "uniqContacts", "uniqFavorites"])
 
 
 class ProcessedUnreadChat(BaseModel):
@@ -171,6 +180,23 @@ async def avito_mark_read(chat_id: str) -> dict[str, Any]:
     client = AvitoClient(get_settings())
     try:
         return await client.mark_chat_read(chat_id)
+    except Exception as exc:
+        raise _to_http_error(exc) from exc
+
+
+@app.post("/api/avito/item-stats")
+async def avito_item_stats(request: ItemStatsRequest) -> dict[str, Any]:
+    if request.date_to < request.date_from:
+        raise HTTPException(status_code=400, detail="date_to must be greater than or equal to date_from")
+    client = AvitoClient(get_settings())
+    try:
+        return await client.get_item_stats(
+            item_ids=request.item_ids,
+            date_from=request.date_from.isoformat(),
+            date_to=request.date_to.isoformat(),
+            period_grouping=request.period_grouping,
+            fields=request.fields,
+        )
     except Exception as exc:
         raise _to_http_error(exc) from exc
 

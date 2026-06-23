@@ -48,6 +48,64 @@ def test_chat_bot_control_roundtrip() -> None:
     assert disabled.json() == {"chat_id": "chat-1", "manager_takeover": False, "bot_enabled": True}
 
 
+def test_item_stats_endpoint_forwards_request(monkeypatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakeAvitoClient:
+        def __init__(self, settings) -> None:
+            self.settings = settings
+
+        async def get_item_stats(self, item_ids, date_from, date_to, period_grouping="day", fields=None):
+            calls.append(
+                {
+                    "item_ids": item_ids,
+                    "date_from": date_from,
+                    "date_to": date_to,
+                    "period_grouping": period_grouping,
+                    "fields": fields,
+                }
+            )
+            return {"result": {"items": [{"itemId": 123, "stats": [{"date": "2026-06-23", "uniqViews": 5}]}]}}
+
+    monkeypatch.setattr("app.main.AvitoClient", FakeAvitoClient)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/avito/item-stats",
+        json={
+            "item_ids": [123],
+            "date_from": "2026-06-01",
+            "date_to": "2026-06-23",
+            "period_grouping": "day",
+            "fields": ["uniqViews"],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["result"]["items"][0]["stats"][0]["uniqViews"] == 5
+    assert calls == [
+        {
+            "item_ids": [123],
+            "date_from": "2026-06-01",
+            "date_to": "2026-06-23",
+            "period_grouping": "day",
+            "fields": ["uniqViews"],
+        }
+    ]
+
+
+def test_item_stats_endpoint_rejects_reversed_dates() -> None:
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/avito/item-stats",
+        json={"item_ids": [123], "date_from": "2026-06-23", "date_to": "2026-06-01"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "date_to must be greater than or equal to date_from"
+
+
 def test_process_unread_sends_ai_reply(monkeypatch) -> None:
     sent_messages: list[tuple[str, str]] = []
     read_chats: list[str] = []

@@ -87,6 +87,25 @@ class AvitoClient:
         user_id = await self._resolve_user_id()
         return await self._request("POST", f"/messenger/v1/accounts/{user_id}/chats/{chat_id}/read")
 
+    async def get_item_stats(
+        self,
+        item_ids: list[int],
+        date_from: str,
+        date_to: str,
+        period_grouping: str = "day",
+        fields: list[str] | None = None,
+    ) -> dict[str, Any]:
+        user_id = await self._resolve_user_id()
+        body: dict[str, Any] = {
+            "itemIds": item_ids,
+            "dateFrom": date_from,
+            "dateTo": date_to,
+            "periodGrouping": period_grouping,
+        }
+        if fields:
+            body["fields"] = fields
+        return await self._request("POST", f"/stats/v1/accounts/{user_id}/items", json=body)
+
     async def _request(
         self,
         method: str,

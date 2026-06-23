@@ -28,7 +28,12 @@
         <p id="automationLine" class="automation-line">Auto reply idle</p>
       </header>
 
-      <section class="workspace">
+      <nav class="view-tabs" aria-label="Основные разделы">
+        <button id="chatTabButton" class="view-tab active" type="button">Чаты</button>
+        <button id="statsTabButton" class="view-tab" type="button">Статистика</button>
+      </nav>
+
+      <section id="chatView" class="workspace">
         <aside class="panel chats-panel">
           <div class="panel-header">
             <h2>Chats</h2>
@@ -42,14 +47,19 @@
 
         <section class="panel conversation-panel">
           <div class="panel-header">
-            <h2 id="conversationTitle">Conversation</h2>
+            <div class="conversation-heading">
+              <h2 id="conversationTitle">Conversation</h2>
+              <a id="clientProfileLink" class="client-profile-link" href="#" target="_blank" rel="noreferrer" hidden>
+                Профиль клиента на Avito
+              </a>
+            </div>
             <div class="panel-actions">
               <label class="inline-toggle chat-control-toggle">
                 <input id="managerTakeoverInput" type="checkbox" disabled />
-                <span>AI mode</span>
+                <span>Ручной режим</span>
               </label>
-              <button id="draftButton" type="button" disabled>AI draft</button>
-              <button id="readButton" type="button" disabled>Read</button>
+              <button id="draftButton" type="button" disabled hidden>AI draft</button>
+              <button id="readButton" type="button" disabled hidden>Read</button>
             </div>
           </div>
           <div id="botActivity" class="bot-activity">Бот ждёт входящих сообщений</div>
@@ -74,6 +84,67 @@
           </div>
           <pre id="output">{}</pre>
         </aside>
+      </section>
+
+      <section id="statsView" class="workspace stats-workspace" hidden>
+        <aside class="panel stats-controls-panel">
+          <div class="panel-header">
+            <h2>Объявления</h2>
+            <button id="refreshStatsItemsButton" type="button">Обновить</button>
+          </div>
+          <div class="stats-controls">
+            <div class="field-row">
+              <label for="statsDateFrom">С даты</label>
+              <input id="statsDateFrom" type="date" />
+            </div>
+            <div class="field-row">
+              <label for="statsDateTo">По дату</label>
+              <input id="statsDateTo" type="date" />
+            </div>
+            <div class="field-row">
+              <label for="statsItemIdsInput">ID вручную</label>
+              <input id="statsItemIdsInput" type="text" placeholder="123, 456" />
+            </div>
+            <div class="stats-field-group" aria-label="Метрики">
+              <label class="inline-toggle">
+                <input id="statsViewsInput" type="checkbox" checked />
+                <span>Просмотры</span>
+              </label>
+              <label class="inline-toggle">
+                <input id="statsContactsInput" type="checkbox" checked />
+                <span>Контакты</span>
+              </label>
+              <label class="inline-toggle">
+                <input id="statsFavoritesInput" type="checkbox" checked />
+                <span>Избранное</span>
+              </label>
+            </div>
+            <button id="loadStatsButton" type="button">Загрузить статистику</button>
+          </div>
+          <div id="statsItemList" class="stats-item-list"></div>
+        </aside>
+
+        <section class="panel stats-results-panel">
+          <div class="panel-header">
+            <h2>Просмотры по дням</h2>
+            <p id="statsStatusLine" class="panel-status">Выберите объявления</p>
+          </div>
+          <div id="statsSummary" class="stats-summary"></div>
+          <div class="stats-table-wrap">
+            <table class="stats-table">
+              <thead>
+                <tr>
+                  <th>Дата</th>
+                  <th>Объявление</th>
+                  <th>Просмотры</th>
+                  <th>Контакты</th>
+                  <th>Избранное</th>
+                </tr>
+              </thead>
+              <tbody id="statsTableBody"></tbody>
+            </table>
+          </div>
+        </section>
       </section>
     </main>
 

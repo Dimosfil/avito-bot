@@ -15,6 +15,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   height: 100%;
@@ -96,6 +100,29 @@ input:disabled {
   justify-content: flex-end;
 }
 
+.view-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px 0;
+  background: var(--bg);
+}
+
+.view-tab {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  background: #edf1f5;
+  color: var(--muted);
+}
+
+.view-tab.active {
+  border-color: var(--line);
+  border-bottom-color: var(--surface);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 700;
+}
+
 .workspace {
   flex: 1;
   display: grid;
@@ -132,6 +159,34 @@ input:disabled {
   font-size: 18px;
 }
 
+.conversation-heading {
+  min-width: 0;
+}
+
+.conversation-heading h2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.client-profile-link {
+  display: inline-block;
+  max-width: 100%;
+  margin-top: 4px;
+  color: var(--accent-strong);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: right;
+}
+
 .panel-actions,
 .draft-header {
   display: flex;
@@ -148,12 +203,23 @@ input:disabled {
 
 .chat-control-toggle {
   min-height: 36px;
-  padding: 0 8px;
+  padding: 0 10px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: #fbfcfd;
   color: var(--text);
+  font-weight: 700;
   white-space: nowrap;
+}
+
+.chat-control-toggle.active {
+  border-color: #1d6a39;
+  background: #e5f7eb;
+  color: #1d6a39;
+}
+
+.chat-control-toggle:has(input:disabled) {
+  opacity: 0.6;
 }
 
 .chat-list,
@@ -502,6 +568,143 @@ input:disabled {
   color: var(--danger);
 }
 
+.stats-workspace {
+  grid-template-columns: minmax(280px, 360px) minmax(420px, 1fr);
+}
+
+.stats-controls {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.field-row {
+  display: grid;
+  gap: 5px;
+}
+
+.field-row label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.field-row input {
+  min-height: 36px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 10px;
+}
+
+.stats-field-group {
+  display: grid;
+  gap: 6px;
+}
+
+.stats-item-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px;
+}
+
+.stats-item-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: flex-start;
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.stats-item-title {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.stats-item-meta {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stats-summary {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  border-bottom: 1px solid var(--line);
+  background: var(--line);
+}
+
+.stats-summary-item {
+  min-width: 0;
+  padding: 10px 12px;
+  background: #fbfcfd;
+}
+
+.stats-summary-value {
+  display: block;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.stats-summary-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.stats-table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.stats-table th,
+.stats-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.stats-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fbfcfd;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.stats-table td:nth-child(3),
+.stats-table td:nth-child(4),
+.stats-table td:nth-child(5) {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.stats-table a {
+  color: var(--accent-strong);
+}
+
 @media (max-width: 980px) {
   .topbar {
     align-items: flex-start;
@@ -519,6 +722,14 @@ input:disabled {
   .workspace {
     grid-template-columns: 1fr;
     overflow: auto;
+  }
+
+  .stats-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .stats-summary {
+    grid-template-columns: 1fr;
   }
 
   .panel {

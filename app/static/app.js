@@ -1,8 +1,13 @@
 const output = document.querySelector("#output");
 const connectionLine = document.querySelector("#connectionLine");
+const chatView = document.querySelector("#chatView");
+const statsView = document.querySelector("#statsView");
+const chatTabButton = document.querySelector("#chatTabButton");
+const statsTabButton = document.querySelector("#statsTabButton");
 const chatList = document.querySelector("#chatList");
 const messageList = document.querySelector("#messageList");
 const conversationTitle = document.querySelector("#conversationTitle");
+const clientProfileLink = document.querySelector("#clientProfileLink");
 const messageInput = document.querySelector("#messageInput");
 const sendButton = document.querySelector("#sendButton");
 const readButton = document.querySelector("#readButton");
@@ -17,13 +22,29 @@ const managerTakeoverInput = document.querySelector("#managerTakeoverInput");
 const managerTakeoverControl = document.querySelector(".chat-control-toggle");
 const automationLine = document.querySelector("#automationLine");
 const botActivity = document.querySelector("#botActivity");
+const refreshStatsItemsButton = document.querySelector("#refreshStatsItemsButton");
+const loadStatsButton = document.querySelector("#loadStatsButton");
+const statsDateFrom = document.querySelector("#statsDateFrom");
+const statsDateTo = document.querySelector("#statsDateTo");
+const statsItemIdsInput = document.querySelector("#statsItemIdsInput");
+const statsViewsInput = document.querySelector("#statsViewsInput");
+const statsContactsInput = document.querySelector("#statsContactsInput");
+const statsFavoritesInput = document.querySelector("#statsFavoritesInput");
+const statsItemList = document.querySelector("#statsItemList");
+const statsStatusLine = document.querySelector("#statsStatusLine");
+const statsSummary = document.querySelector("#statsSummary");
+const statsTableBody = document.querySelector("#statsTableBody");
 
 let activeChatId = null;
 let activeChat = null;
 let activeMessagesResponse = null;
+let activeMessagesFingerprint = "";
+let activeChatRequestId = 0;
 let automationBusy = false;
 let pollingTimer = null;
 let currentChats = [];
+let currentChatsFingerprint = "";
+let currentStatsItems = [];
 let chatFoldersInitialized = false;
 const openChatFolderKeys = new Set();
 const openChatBucketKeys = new Set();
@@ -39,6 +60,8 @@ document.querySelector("#refreshStatusButton").addEventListener("click", refresh
 document.querySelector("#tokenButton").addEventListener("click", checkToken);
 document.querySelector("#accountButton").addEventListener("click", loadAccount);
 document.querySelector("#chatsButton").addEventListener("click", loadChats);
+chatTabButton.addEventListener("click", () => showView("chats"));
+statsTabButton.addEventListener("click", () => showView("stats"));
 processUnreadButton.addEventListener("click", () => processUnread({ show: true }));
 document.querySelector("#aiPingButton").addEventListener("click", pingAi);
 document.querySelector("#webhooksButton").addEventListener("click", loadWebhookEvents);
@@ -48,14 +71,18 @@ draftButton.addEventListener("click", draftReply);
 useDraftButton.addEventListener("click", useDraft);
 autoProcessInput.addEventListener("change", syncServerAutoReply);
 managerTakeoverInput.addEventListener("change", syncChatBotControl);
+refreshStatsItemsButton.addEventListener("click", refreshStatsItems);
+loadStatsButton.addEventListener("click", loadItemStats);
 
 initialize();
 
 async function initialize() {
+  initializeStatsDates();
   const status = await refreshStatus();
   if (status.avito_client_id_configured && status.avito_client_secret_configured) {
     try {
       await loadChats();
+      refreshStatsItems();
       await syncServerAutoReply();
       startPolling();
     } catch (error) {
@@ -96,32 +123,56 @@ async function loadChats({ show = true } = {}) {
   });
   const data = await api(`/api/avito/chats?${params.toString()}`);
   if (show) showOutput(data);
-  currentChats = data.chats || [];
-  renderChats(currentChats);
+  const nextChats = data.chats || [];
+  const nextFingerprint = getChatsFingerprint(nextChats);
+  currentChats = nextChats;
+  if (nextFingerprint !== currentChatsFingerprint) {
+    currentChatsFingerprint = nextFingerprint;
+    renderChats(currentChats);
+    refreshStatsItems();
+  }
 }
 
 async function loadMessages(chatId, { resetDraft = true, show = true, chatSummary = null } = {}) {
+  const requestId = ++activeChatRequestId;
+  const isSameActiveChat = String(activeChatId) === String(chatId);
+  const isBackgroundRefresh =
+    isSameActiveChat && activeMessagesResponse && resetDraft === false && show === false;
+
   activeChatId = chatId;
-  activeChat = chatSummary || findCurrentChat(chatId) || null;
-  activeMessagesResponse = null;
-  if (resetDraft) hideDraft();
-  conversationTitle.textContent = chatId;
-  messageInput.disabled = false;
-  sendButton.disabled = false;
-  readButton.disabled = false;
-  managerTakeoverInput.disabled = false;
-  managerTakeoverInput.checked = true;
-  draftButton.disabled = true;
+  activeChat = chatSummary || findCurrentChat(chatId) || (isSameActiveChat ? activeChat : null);
+
+  if (!isBackgroundRefresh) {
+    activeMessagesResponse = null;
+    activeMessagesFingerprint = "";
+    if (resetDraft) hideDraft();
+    conversationTitle.textContent = chatId;
+    updateClientProfileLink(activeChat);
+    messageInput.disabled = false;
+    sendButton.disabled = false;
+    readButton.disabled = false;
+    managerTakeoverInput.disabled = true;
+    draftButton.disabled = true;
+  }
+
   try {
     const chat = await api(`/api/avito/chats/${encodeURIComponent(chatId)}`);
     const data = await api(`/api/avito/chats/${encodeURIComponent(chatId)}/messages?limit=50`);
+    if (requestId !== activeChatRequestId || String(activeChatId) !== String(chatId)) return;
     activeChat = mergeChatDetails(activeChat, chat);
+    updateClientProfileLink(activeChat);
     activeMessagesResponse = data;
     if (show) showOutput(data);
     const messages = normalizeMessages(data);
-    markBuyingChatFromMessages(chatId, messages);
-    renderMessages(messages);
-    renderChats(currentChats);
+    const buyingStatusChanged = markBuyingChatFromMessages(chatId, messages);
+    const nextMessagesFingerprint = getMessagesFingerprint(messages);
+    if (!isBackgroundRefresh || nextMessagesFingerprint !== activeMessagesFingerprint) {
+      activeMessagesFingerprint = nextMessagesFingerprint;
+      renderMessages(messages);
+    }
+    if (!isBackgroundRefresh || buyingStatusChanged) {
+      renderChats(currentChats);
+    }
     try {
       await loadChatBotControl(chatId, { show: false });
     } catch (error) {
@@ -129,6 +180,7 @@ async function loadMessages(chatId, { resetDraft = true, show = true, chatSummar
     }
     draftButton.disabled = false;
   } catch (error) {
+    if (requestId !== activeChatRequestId || String(activeChatId) !== String(chatId)) return;
     renderError(error.message);
   }
 }
@@ -162,40 +214,49 @@ async function loadChatBotControl(chatId, { show = false } = {}) {
 
 async function syncChatBotControl() {
   if (!activeChatId) return;
+  const requestedManagerTakeover = managerTakeoverInput.checked;
   managerTakeoverInput.disabled = true;
   try {
     const data = await api(`/api/avito/chats/${encodeURIComponent(activeChatId)}/bot-control`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ manager_takeover: !managerTakeoverInput.checked }),
+      body: JSON.stringify({ manager_takeover: requestedManagerTakeover }),
       quiet: true,
     });
     showOutput(data);
     updateChatBotControl(data);
   } catch (error) {
-    managerTakeoverInput.checked = !managerTakeoverInput.checked;
+    managerTakeoverInput.checked = !requestedManagerTakeover;
     if (/404|not found/i.test(error.message)) {
       disableChatBotControl(error.message);
     } else {
       showOutput({ error: error.message });
     }
   } finally {
-    managerTakeoverInput.disabled = false;
+    managerTakeoverInput.disabled = !activeChatId || (managerTakeoverControl && managerTakeoverControl.hidden);
   }
 }
 
 function updateChatBotControl(data) {
   if (managerTakeoverControl) managerTakeoverControl.hidden = false;
-  managerTakeoverInput.checked = data.bot_enabled !== false;
+  managerTakeoverInput.checked = data.manager_takeover === true;
   managerTakeoverInput.disabled = !activeChatId;
+  if (managerTakeoverControl) {
+    managerTakeoverControl.classList.toggle("active", data.manager_takeover === true);
+  }
   if (data.manager_takeover) {
-    setBotActivity("AI mode выключен для этого чата: пишет менеджер", "active");
+    setBotActivity("Ручной режим: бот выключен только в этом чате, отвечает оператор.", "active");
+  } else {
+    setBotActivity("Бот отвечает в этом чате. Оператор может включить ручной режим в любой момент.");
   }
 }
 
 function disableChatBotControl(reason) {
-  managerTakeoverInput.checked = true;
+  managerTakeoverInput.checked = false;
   managerTakeoverInput.disabled = true;
+  if (managerTakeoverControl) {
+    managerTakeoverControl.classList.remove("active");
+  }
   if (managerTakeoverControl && /404|not found/i.test(reason)) {
     managerTakeoverControl.hidden = true;
   }
@@ -394,6 +455,314 @@ async function loadWebhookEvents() {
   showOutput(await api("/api/webhooks/avito/events"));
 }
 
+function showView(view) {
+  const showStats = view === "stats";
+  chatView.hidden = showStats;
+  statsView.hidden = !showStats;
+  chatTabButton.classList.toggle("active", !showStats);
+  statsTabButton.classList.toggle("active", showStats);
+  if (showStats) refreshStatsItems();
+}
+
+function initializeStatsDates() {
+  const today = new Date();
+  const from = new Date(today);
+  from.setDate(today.getDate() - 30);
+  statsDateFrom.value = formatDateInput(from);
+  statsDateTo.value = formatDateInput(today);
+}
+
+function formatDateInput(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function refreshStatsItems() {
+  const previousSelectedIds = new Set(getCheckedStatsItemIds().map(String));
+  currentStatsItems = getStatsItemsFromChats(currentChats);
+  renderStatsItemList(previousSelectedIds);
+}
+
+function getStatsItemsFromChats(chats) {
+  const itemsById = new Map();
+  chats.forEach((chat) => {
+    const item = getChatItemContext(chat);
+    const itemId = getItemId(item, chat);
+    if (!itemId || itemsById.has(itemId)) return;
+    itemsById.set(itemId, {
+      id: itemId,
+      title: getItemTitle(item, chat),
+      url: getItemUrl(item, chat),
+      chatCount: 0,
+    });
+  });
+  chats.forEach((chat) => {
+    const itemId = getItemId(getChatItemContext(chat), chat);
+    const item = itemsById.get(itemId);
+    if (item) item.chatCount += 1;
+  });
+  return [...itemsById.values()].sort((left, right) => left.title.localeCompare(right.title));
+}
+
+function renderStatsItemList(previousSelectedIds) {
+  statsItemList.innerHTML = "";
+  if (!currentStatsItems.length) {
+    statsItemList.textContent = "Сначала загрузите чаты: из них берутся ID объявлений.";
+    return;
+  }
+
+  const shouldSelectAll = !previousSelectedIds.size;
+  currentStatsItems.forEach((item) => {
+    const label = document.createElement("label");
+    label.className = "stats-item-option";
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.className = "stats-item-checkbox";
+    checkbox.value = item.id;
+    checkbox.checked = shouldSelectAll || previousSelectedIds.has(String(item.id));
+
+    const body = document.createElement("span");
+    const title = document.createElement("span");
+    title.className = "stats-item-title";
+    title.textContent = item.title;
+    const meta = document.createElement("span");
+    meta.className = "stats-item-meta";
+    meta.textContent = `ID ${item.id} · чатов ${item.chatCount}`;
+    body.append(title, meta);
+
+    label.append(checkbox, body);
+    statsItemList.append(label);
+  });
+}
+
+async function loadItemStats() {
+  const itemIds = getSelectedStatsItemIds();
+  if (!itemIds.length) {
+    setStatsStatus("Выберите объявления или введите ID вручную", true);
+    return;
+  }
+  if (!statsDateFrom.value || !statsDateTo.value) {
+    setStatsStatus("Укажите диапазон дат", true);
+    return;
+  }
+
+  const fields = getSelectedStatsFields();
+  loadStatsButton.disabled = true;
+  setStatsStatus("Загружаю статистику...");
+  try {
+    const data = await api("/api/avito/item-stats", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        item_ids: itemIds,
+        date_from: statsDateFrom.value,
+        date_to: statsDateTo.value,
+        period_grouping: "day",
+        fields,
+      }),
+    });
+    showOutput(data);
+    renderItemStats(data);
+  } catch (error) {
+    setStatsStatus(error.message, true);
+  } finally {
+    loadStatsButton.disabled = false;
+  }
+}
+
+function getCheckedStatsItemIds() {
+  return [...statsItemList.querySelectorAll(".stats-item-checkbox:checked")].map((input) => input.value);
+}
+
+function getSelectedStatsItemIds() {
+  const manualIds = statsItemIdsInput.value
+    .split(/[,\s]+/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const ids = [...getCheckedStatsItemIds(), ...manualIds]
+    .filter((value) => /^\d+$/.test(String(value)))
+    .map((value) => Number(value));
+  return [...new Set(ids)];
+}
+
+function getSelectedStatsFields() {
+  const fields = [];
+  if (statsViewsInput.checked) fields.push("uniqViews");
+  if (statsContactsInput.checked) fields.push("uniqContacts");
+  if (statsFavoritesInput.checked) fields.push("uniqFavorites");
+  return fields.length ? fields : ["uniqViews"];
+}
+
+function renderItemStats(data) {
+  const rows = normalizeStatsRows(data);
+  statsTableBody.innerHTML = "";
+  if (!rows.length) {
+    statsSummary.innerHTML = "";
+    setStatsStatus("Avito вернул пустую статистику");
+    return;
+  }
+
+  rows.sort((left, right) => {
+    const dateCompare = String(left.date).localeCompare(String(right.date));
+    return dateCompare || String(left.itemId).localeCompare(String(right.itemId));
+  });
+
+  rows.forEach((row) => {
+    const tr = document.createElement("tr");
+    tr.append(
+      createTableCell(row.date || "-"),
+      createStatsItemCell(row),
+      createTableCell(formatMetric(row.uniqViews)),
+      createTableCell(formatMetric(row.uniqContacts)),
+      createTableCell(formatMetric(row.uniqFavorites)),
+    );
+    statsTableBody.append(tr);
+  });
+
+  renderStatsSummary(rows);
+  setStatsStatus(`Строк: ${rows.length}`);
+}
+
+function normalizeStatsRows(data) {
+  const items = unwrapStatsItems(data);
+  return items.flatMap((item) => {
+    const itemId = String(item.itemId || item.item_id || item.id || "");
+    const itemInfo = findStatsItem(itemId);
+    const periods = item.stats || item.days || item.values || item.statistics || item.data || [];
+    if (!Array.isArray(periods) || !periods.length) {
+      return [
+        {
+          itemId,
+          title: itemInfo?.title || item.title || `ID ${itemId}`,
+          url: itemInfo?.url || item.url || "",
+          date: item.date || "",
+          uniqViews: pickMetric(item, "uniqViews"),
+          uniqContacts: pickMetric(item, "uniqContacts"),
+          uniqFavorites: pickMetric(item, "uniqFavorites"),
+        },
+      ];
+    }
+    return periods.map((period) => ({
+      itemId,
+      title: itemInfo?.title || item.title || `ID ${itemId}`,
+      url: itemInfo?.url || item.url || "",
+      date: period.date || period.day || period.period || "",
+      uniqViews: pickMetric(period, "uniqViews"),
+      uniqContacts: pickMetric(period, "uniqContacts"),
+      uniqFavorites: pickMetric(period, "uniqFavorites"),
+    }));
+  });
+}
+
+function unwrapStatsItems(data) {
+  const candidates = [
+    data?.result?.items,
+    data?.result?.stats,
+    data?.items,
+    data?.stats,
+    data?.result,
+    data,
+  ];
+  const found = candidates.find((value) => Array.isArray(value));
+  return found || [];
+}
+
+function pickMetric(source, field) {
+  const value = source?.[field] ?? source?.counters?.[field] ?? source?.metrics?.[field];
+  return Number.isFinite(Number(value)) ? Number(value) : 0;
+}
+
+function findStatsItem(itemId) {
+  return currentStatsItems.find((item) => String(item.id) === String(itemId));
+}
+
+function createTableCell(text) {
+  const td = document.createElement("td");
+  td.textContent = text;
+  return td;
+}
+
+function createStatsItemCell(row) {
+  const td = document.createElement("td");
+  if (row.url) {
+    const link = document.createElement("a");
+    link.href = row.url;
+    link.target = "_blank";
+    link.rel = "noreferrer";
+    link.textContent = row.title;
+    td.append(link);
+  } else {
+    td.textContent = row.title;
+  }
+  return td;
+}
+
+function formatMetric(value) {
+  return new Intl.NumberFormat("ru-RU").format(Number(value) || 0);
+}
+
+function renderStatsSummary(rows) {
+  const totals = rows.reduce(
+    (sum, row) => ({
+      uniqViews: sum.uniqViews + row.uniqViews,
+      uniqContacts: sum.uniqContacts + row.uniqContacts,
+      uniqFavorites: sum.uniqFavorites + row.uniqFavorites,
+    }),
+    { uniqViews: 0, uniqContacts: 0, uniqFavorites: 0 },
+  );
+  statsSummary.innerHTML = "";
+  statsSummary.append(
+    createSummaryItem("Просмотры", totals.uniqViews),
+    createSummaryItem("Контакты", totals.uniqContacts),
+    createSummaryItem("Избранное", totals.uniqFavorites),
+  );
+}
+
+function createSummaryItem(label, value) {
+  const item = document.createElement("div");
+  item.className = "stats-summary-item";
+  const number = document.createElement("span");
+  number.className = "stats-summary-value";
+  number.textContent = formatMetric(value);
+  const caption = document.createElement("span");
+  caption.className = "stats-summary-label";
+  caption.textContent = label;
+  item.append(number, caption);
+  return item;
+}
+
+function setStatsStatus(text, isError = false) {
+  statsStatusLine.textContent = text;
+  statsStatusLine.className = `panel-status ${isError ? "error" : ""}`.trim();
+}
+
+function getChatsFingerprint(chats) {
+  return JSON.stringify(
+    chats.map((chat) => ({
+      id: chat.id,
+      last_message: chat.last_message,
+      status: chat.status,
+      state: chat.state,
+      handoff_required: chat.handoff_required,
+      unread_count: chat.unread_count,
+      updated: chat.updated || chat.updated_at,
+    })),
+  );
+}
+
+function getMessagesFingerprint(messages) {
+  return JSON.stringify(
+    messages.map((message) => ({
+      id: message.id || message.message_id,
+      created: message.created || message.created_at,
+      author_id: getMessageAuthorId(message),
+      direction: message.direction,
+      type: message.type,
+      text: getMessageText(message),
+    })),
+  );
+}
+
 function renderChats(chats) {
   chatList.innerHTML = "";
   if (!chats.length) {
@@ -575,11 +944,12 @@ function isBuyingChat(chat) {
 }
 
 function markBuyingChatFromMessages(chatId, messages) {
-  if (!chatId || qualifiedBuyingChatIds.has(String(chatId))) return;
+  if (!chatId || qualifiedBuyingChatIds.has(String(chatId))) return false;
   const text = messages.map(getMessageText).filter(Boolean).join("\n");
-  if (!text || !hasBuyingIntent(text)) return;
+  if (!text || !hasBuyingIntent(text)) return false;
   qualifiedBuyingChatIds.add(String(chatId));
   saveQualifiedBuyingChatIds();
+  return true;
 }
 
 function hasBuyingIntent(text) {
@@ -715,12 +1085,37 @@ function getChatItemContext(chat) {
   return chat.context?.value || chat.item || {};
 }
 
+function getItemId(item, chat = {}) {
+  const value =
+    item.id ||
+    item.item_id ||
+    item.avito_id ||
+    chat.item_id ||
+    chat.itemId ||
+    chat.context?.value?.id ||
+    chat.context?.value?.item_id;
+  return value ? String(value) : "";
+}
+
 function getItemKey(item, title) {
   return String(item.id || item.item_id || item.url || `${title}|${item.price_string || ""}` || "unknown-item");
 }
 
 function getItemTitle(item, chat) {
   return item.title || chat.context?.title || "Объявление без названия";
+}
+
+function getItemUrl(item, chat = {}) {
+  return (
+    item.url ||
+    item.uri ||
+    item.link ||
+    item.external_url ||
+    chat.item_url ||
+    chat.context?.value?.url ||
+    chat.context?.value?.uri ||
+    ""
+  );
 }
 
 function getChatDisplayTitle(chat) {
@@ -731,6 +1126,18 @@ function getChatMeta(chat) {
   const profile = getBuyerProfileLabel(chat);
   const chatId = chat.id ? `чат ${chat.id}` : "чат без ID";
   return profile ? `${profile} · ${chatId}` : chatId;
+}
+
+function updateClientProfileLink(chat) {
+  const url = getBuyerProfileUrl(chat || {});
+  if (!url) {
+    clientProfileLink.hidden = true;
+    clientProfileLink.removeAttribute("href");
+    return;
+  }
+  clientProfileLink.hidden = false;
+  clientProfileLink.href = url;
+  clientProfileLink.textContent = "Профиль клиента на Avito";
 }
 
 function getChatPreviewText(chat) {
@@ -779,6 +1186,10 @@ function cleanClientNameCandidate(value) {
 }
 
 function getBuyerProfileLabel(chat) {
+  return getBuyerProfileUrl(chat);
+}
+
+function getBuyerProfileUrl(chat) {
   const directProfile =
     chat.buyer?.profile_url ||
     chat.buyer?.url ||
