@@ -72,6 +72,11 @@ First runnable slice:
   seller has already greeted the client.
 - The manager UI shows Avito messages chronologically with day separators,
   per-message time, clear sender roles, and explicit start/latest markers.
+- The manager UI has a per-chat `AI mode` checkbox that is enabled by default.
+  When `AI mode` is unchecked for a chat, the backend stores that chat as a
+  manager takeover and the auto-reply worker must skip it even if it has unread
+  inbound messages; the manager can still send manual Avito messages from the
+  conversation panel.
 - The UI loads Avito chats by default after confirming credentials are present.
 - The UI can enable a backend auto-reply worker. The worker polls Avito from the
   server every few seconds, so automatic replies do not depend on the manager
@@ -79,6 +84,44 @@ First runnable slice:
   status, chat list, and active conversation while visible.
 - The manager UI keeps chats, active conversation, and API inspector in
   independent scroll areas so long histories do not move the whole workspace.
+- The manager UI groups Avito chats by listing/ad context: each listing appears
+  as a collapsible folder with its chat count, and chats for that listing are
+  shown inside the folder so managers can review leads per advertised item.
+- Chat rows in the manager UI must identify the client whenever the channel
+  payload exposes a buyer/profile/user name. When Avito exposes a client name
+  in the chat title, that chat title is the authoritative client label and must
+  take priority over generic profile/user fields that may describe the seller or
+  brand. The row must still show the external chat id when the client name is
+  unavailable. For Avito item chats, `context.value.user_id` identifies the
+  seller/listing owner; when `users` contains both seller and client, the client
+  label must come from the participant whose id is different from that seller
+  id.
+- Message bubbles in the manager UI must identify the message author whenever
+  the channel payload exposes an author/user/sender name or id; when only chat
+  context is available, inbound messages should fall back to the active external
+  chat title/client label or chat id so the manager can still correlate the
+  speaker. The UI must preserve the selected chat-list summary while loading
+  detailed chat payloads so a correct Avito chat-title client name is not lost.
+- Each listing folder must contain a visually distinct `Согласились купить`
+  bucket for chats whose latest available channel metadata or message text
+  indicates purchase, need/request, deal, order, commercial proposal, manager
+  handoff intent, or qualifying readiness such as "без ограничений" on price,
+  region, or budget. Other chats remain under the regular chat bucket for that
+  listing. Both the buying bucket and the regular bucket must be independently
+  collapsible inside each listing folder.
+- Once the UI classifies a chat as qualified for the `Согласились купить`
+  bucket, that classification should remain sticky across later list refreshes
+  even if the latest message changes to a neutral manager follow-up. Follow-up
+  phrases such as "определился", manager handoff wording, exact calculation, or
+  proposal preparation are also qualification signals.
+- UI service-purchase trigger words and regex phrases must live in a separate
+  project-local rules dictionary, not inline inside the chat rendering logic.
+  The current browser-side dictionary is `app/static/bot-rules.js` under
+  `servicePurchaseTriggers`; `app/static/app.js` may compile and apply those
+  rules but should not own the phrase list.
+- Chat-list previews should stay compact by clamping the latest-message preview
+  to a small fixed number of lines so managers can scan more conversations
+  without losing the client name and status badge.
 - The auto-processing API returns bot activity estimates for each accepted
   inbound message: accepted time, estimated reply seconds/time, sent time, and
   actual processing duration. The UI shows when the bot starts checking or
@@ -152,6 +195,9 @@ Minimum MVP checks:
 - A message containing `хочу КП` or `хочу сделку` moves the conversation to
   `handoff_requested`.
 - After handoff or manual takeover, AI does not send further replies.
+- Per-chat manual takeover must be testable through the HTTP API and must make
+  unread auto-processing report the chat as `manager_active` without fetching
+  messages or sending an AI reply.
 - Manager can see the full message history and sender roles.
 - Channel adapter tests prove core workflow is platform-neutral.
 - Avito adapter tests prove official Avito payloads can be normalized into the

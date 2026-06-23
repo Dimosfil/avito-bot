@@ -24,6 +24,7 @@ app = FastAPI(title="avito-bot", version="0.1.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 webhook_events: list[dict[str, Any]] = []
+manager_takeover_chat_ids: set[str] = set()
 process_unread_lock = asyncio.Lock()
 bot_worker_task: asyncio.Task[None] | None = None
 bot_worker_enabled = False
@@ -46,6 +47,10 @@ class SendMessageRequest(BaseModel):
 class DraftReplyRequest(BaseModel):
     chat: dict[str, Any] = Field(default_factory=dict)
     messages: dict[str, Any] = Field(default_factory=dict)
+
+
+class ChatBotControlRequest(BaseModel):
+    manager_takeover: bool
 
 
 class ProcessedUnreadChat(BaseModel):
@@ -170,6 +175,20 @@ async def avito_mark_read(chat_id: str) -> dict[str, Any]:
         raise _to_http_error(exc) from exc
 
 
+@app.get("/api/avito/chats/{chat_id}/bot-control")
+async def avito_chat_bot_control(chat_id: str) -> dict[str, Any]:
+    return _chat_bot_control_response(chat_id)
+
+
+@app.post("/api/avito/chats/{chat_id}/bot-control")
+async def avito_set_chat_bot_control(chat_id: str, request: ChatBotControlRequest) -> dict[str, Any]:
+    if request.manager_takeover:
+        manager_takeover_chat_ids.add(chat_id)
+    else:
+        manager_takeover_chat_ids.discard(chat_id)
+    return _chat_bot_control_response(chat_id)
+
+
 @app.post("/api/avito/chats/{chat_id}/ai-draft")
 async def avito_ai_draft(chat_id: str) -> dict[str, Any]:
     settings = get_settings()
@@ -238,6 +257,9 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
         chat_id = str(chat.get("id") or "")
         if not chat_id:
             results.append(ProcessedUnreadChat(chat_id="", status="skipped", error="missing chat id"))
+            continue
+        if chat_id in manager_takeover_chat_ids:
+            results.append(ProcessedUnreadChat(chat_id=chat_id, status="manager_active"))
             continue
 
         try:
@@ -329,6 +351,15 @@ def _bot_activity_response() -> dict[str, Any]:
     return {
         **bot_activity,
         "task_state": task_state,
+    }
+
+
+def _chat_bot_control_response(chat_id: str) -> dict[str, Any]:
+    manager_takeover = chat_id in manager_takeover_chat_ids
+    return {
+        "chat_id": chat_id,
+        "manager_takeover": manager_takeover,
+        "bot_enabled": not manager_takeover,
     }
 
 

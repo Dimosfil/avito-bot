@@ -13,6 +13,8 @@ const draftText = document.querySelector("#draftText");
 const unreadOnlyInput = document.querySelector("#unreadOnlyInput");
 const processUnreadButton = document.querySelector("#processUnreadButton");
 const autoProcessInput = document.querySelector("#autoProcessInput");
+const managerTakeoverInput = document.querySelector("#managerTakeoverInput");
+const managerTakeoverControl = document.querySelector(".chat-control-toggle");
 const automationLine = document.querySelector("#automationLine");
 const botActivity = document.querySelector("#botActivity");
 
@@ -21,8 +23,17 @@ let activeChat = null;
 let activeMessagesResponse = null;
 let automationBusy = false;
 let pollingTimer = null;
+let currentChats = [];
+let chatFoldersInitialized = false;
+const openChatFolderKeys = new Set();
+const openChatBucketKeys = new Set();
 
 const POLLING_INTERVAL_MS = 3000;
+const QUALIFIED_BUYING_CHAT_IDS_KEY = "avito-bot-qualified-buying-chat-ids";
+const qualifiedBuyingChatIds = loadQualifiedBuyingChatIds();
+const BUYING_CHAT_BUCKET = "Согласились купить";
+const OTHER_CHAT_BUCKET = "Остальные чаты";
+const SERVICE_PURCHASE_TRIGGER_PATTERNS = compileServicePurchaseTriggerPatterns();
 
 document.querySelector("#refreshStatusButton").addEventListener("click", refreshStatus);
 document.querySelector("#tokenButton").addEventListener("click", checkToken);
@@ -36,6 +47,7 @@ readButton.addEventListener("click", markRead);
 draftButton.addEventListener("click", draftReply);
 useDraftButton.addEventListener("click", useDraft);
 autoProcessInput.addEventListener("change", syncServerAutoReply);
+managerTakeoverInput.addEventListener("change", syncChatBotControl);
 
 initialize();
 
@@ -84,26 +96,37 @@ async function loadChats({ show = true } = {}) {
   });
   const data = await api(`/api/avito/chats?${params.toString()}`);
   if (show) showOutput(data);
-  renderChats(data.chats || []);
+  currentChats = data.chats || [];
+  renderChats(currentChats);
 }
 
-async function loadMessages(chatId, { resetDraft = true, show = true } = {}) {
+async function loadMessages(chatId, { resetDraft = true, show = true, chatSummary = null } = {}) {
   activeChatId = chatId;
-  activeChat = null;
+  activeChat = chatSummary || findCurrentChat(chatId) || null;
   activeMessagesResponse = null;
   if (resetDraft) hideDraft();
   conversationTitle.textContent = chatId;
   messageInput.disabled = false;
   sendButton.disabled = false;
   readButton.disabled = false;
+  managerTakeoverInput.disabled = false;
+  managerTakeoverInput.checked = true;
   draftButton.disabled = true;
   try {
     const chat = await api(`/api/avito/chats/${encodeURIComponent(chatId)}`);
     const data = await api(`/api/avito/chats/${encodeURIComponent(chatId)}/messages?limit=50`);
-    activeChat = chat;
+    activeChat = mergeChatDetails(activeChat, chat);
     activeMessagesResponse = data;
     if (show) showOutput(data);
-    renderMessages(normalizeMessages(data));
+    const messages = normalizeMessages(data);
+    markBuyingChatFromMessages(chatId, messages);
+    renderMessages(messages);
+    renderChats(currentChats);
+    try {
+      await loadChatBotControl(chatId, { show: false });
+    } catch (error) {
+      disableChatBotControl(error.message);
+    }
     draftButton.disabled = false;
   } catch (error) {
     renderError(error.message);
@@ -128,6 +151,54 @@ async function sendMessage(event) {
 async function markRead() {
   if (!activeChatId) return;
   showOutput(await api(`/api/avito/chats/${encodeURIComponent(activeChatId)}/read`, { method: "POST" }));
+}
+
+async function loadChatBotControl(chatId, { show = false } = {}) {
+  const data = await api(`/api/avito/chats/${encodeURIComponent(chatId)}/bot-control`, { quiet: true });
+  if (show) showOutput(data);
+  updateChatBotControl(data);
+  return data;
+}
+
+async function syncChatBotControl() {
+  if (!activeChatId) return;
+  managerTakeoverInput.disabled = true;
+  try {
+    const data = await api(`/api/avito/chats/${encodeURIComponent(activeChatId)}/bot-control`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ manager_takeover: !managerTakeoverInput.checked }),
+      quiet: true,
+    });
+    showOutput(data);
+    updateChatBotControl(data);
+  } catch (error) {
+    managerTakeoverInput.checked = !managerTakeoverInput.checked;
+    if (/404|not found/i.test(error.message)) {
+      disableChatBotControl(error.message);
+    } else {
+      showOutput({ error: error.message });
+    }
+  } finally {
+    managerTakeoverInput.disabled = false;
+  }
+}
+
+function updateChatBotControl(data) {
+  if (managerTakeoverControl) managerTakeoverControl.hidden = false;
+  managerTakeoverInput.checked = data.bot_enabled !== false;
+  managerTakeoverInput.disabled = !activeChatId;
+  if (data.manager_takeover) {
+    setBotActivity("AI mode выключен для этого чата: пишет менеджер", "active");
+  }
+}
+
+function disableChatBotControl(reason) {
+  managerTakeoverInput.checked = true;
+  managerTakeoverInput.disabled = true;
+  if (managerTakeoverControl && /404|not found/i.test(reason)) {
+    managerTakeoverControl.hidden = true;
+  }
 }
 
 async function processUnread({ show = false } = {}) {
@@ -254,6 +325,11 @@ function updateBotActivityFromProcessing(data) {
     return;
   }
 
+  if (activeResult.status === "manager_active") {
+    setBotActivity("Ручной режим: бот пропустил этот чат, отвечает менеджер", "active");
+    return;
+  }
+
   setBotActivity("Бот проверил входящие, отвечать не нужно");
 }
 
@@ -324,23 +400,440 @@ function renderChats(chats) {
     chatList.textContent = "No chats";
     return;
   }
-  chats.forEach((chat) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `chat-item ${chat.id === activeChatId ? "active" : ""}`;
-    button.addEventListener("click", () => loadMessages(chat.id));
+  const groups = groupChatsByItem(chats);
+  syncOpenChatFolders(groups);
+  groups.forEach((group) => {
+    const folder = document.createElement("section");
+    folder.className = "chat-folder";
 
-    const title = document.createElement("div");
-    title.className = "chat-title";
-    title.textContent = chat.context?.value?.title || chat.id;
+    const folderButton = document.createElement("button");
+    folderButton.type = "button";
+    folderButton.className = "chat-folder-button";
+    folderButton.setAttribute("aria-expanded", String(openChatFolderKeys.has(group.key)));
+    folderButton.addEventListener("click", () => toggleChatFolder(group.key));
 
-    const subtitle = document.createElement("div");
-    subtitle.className = "chat-subtitle";
-    subtitle.textContent = chat.last_message?.content?.text || chat.context?.value?.price_string || "No text";
+    const icon = document.createElement("span");
+    icon.className = "chat-folder-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = openChatFolderKeys.has(group.key) ? "▾" : "›";
 
-    button.append(title, subtitle);
-    chatList.append(button);
+    const title = document.createElement("span");
+    title.className = "chat-folder-title";
+    title.textContent = group.title;
+
+    const count = document.createElement("span");
+    count.className = "chat-folder-count";
+    count.textContent = String(group.chats.length);
+
+    folderButton.append(icon, title, count);
+    folder.append(folderButton);
+
+    const nestedList = document.createElement("div");
+    nestedList.className = "chat-folder-list";
+    nestedList.hidden = !openChatFolderKeys.has(group.key);
+
+    const buckets = splitChatsByBuyingIntent(group.chats);
+    nestedList.append(createChatBucket(group.key, "buying", BUYING_CHAT_BUCKET, buckets.buying, { highlighted: true }));
+    nestedList.append(createChatBucket(group.key, "other", OTHER_CHAT_BUCKET, buckets.other));
+
+    folder.append(nestedList);
+    chatList.append(folder);
   });
+}
+
+function createChatBucket(groupKey, bucketKey, title, chats, { highlighted = false } = {}) {
+  const key = getChatBucketKey(groupKey, bucketKey);
+  const isOpen = openChatBucketKeys.has(key);
+  const bucket = document.createElement("section");
+  bucket.className = `chat-bucket ${highlighted ? "buying" : ""}`.trim();
+
+  const header = document.createElement("button");
+  header.type = "button";
+  header.className = "chat-bucket-header";
+  header.setAttribute("aria-expanded", String(isOpen));
+  header.addEventListener("click", () => toggleChatBucket(key));
+
+  const icon = document.createElement("span");
+  icon.className = "chat-bucket-icon";
+  icon.setAttribute("aria-hidden", "true");
+  icon.textContent = isOpen ? "v" : ">";
+
+  const name = document.createElement("span");
+  name.className = "chat-bucket-title";
+  name.textContent = title;
+
+  const count = document.createElement("span");
+  count.className = "chat-bucket-count";
+  count.textContent = String(chats.length);
+
+  header.append(icon, name, count);
+  bucket.append(header);
+
+  const body = document.createElement("div");
+  body.className = "chat-bucket-body";
+  body.hidden = !isOpen;
+
+  if (!chats.length) {
+    const empty = document.createElement("div");
+    empty.className = "chat-bucket-empty";
+    empty.textContent = "Пока нет";
+    body.append(empty);
+    bucket.append(body);
+    return bucket;
+  }
+
+  chats.forEach((chat) => {
+    body.append(createChatButton(chat));
+  });
+  bucket.append(body);
+  return bucket;
+}
+
+function createChatButton(chat) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `chat-item ${String(chat.id) === String(activeChatId) ? "active" : ""}`;
+  button.addEventListener("click", () => loadMessages(chat.id, { chatSummary: chat }));
+
+  const titleRow = document.createElement("div");
+  titleRow.className = "chat-title-row";
+
+  const title = document.createElement("span");
+  title.className = "chat-title";
+  title.textContent = getChatDisplayTitle(chat);
+
+  titleRow.append(title);
+
+  if (isBuyingChat(chat)) {
+    const badge = document.createElement("span");
+    badge.className = "chat-deal-badge";
+    badge.textContent = "покупает";
+    titleRow.append(badge);
+  }
+
+  const meta = document.createElement("div");
+  meta.className = "chat-meta";
+  meta.textContent = getChatMeta(chat);
+
+  const subtitle = document.createElement("div");
+  subtitle.className = "chat-subtitle";
+  subtitle.textContent = getChatPreviewText(chat);
+
+  button.append(titleRow, meta, subtitle);
+  return button;
+}
+
+function splitChatsByBuyingIntent(chats) {
+  const buying = [];
+  const other = [];
+  chats.forEach((chat) => {
+    if (isBuyingChat(chat)) {
+      buying.push(chat);
+    } else {
+      other.push(chat);
+    }
+  });
+  return { buying, other };
+}
+
+function isBuyingChat(chat) {
+  if (qualifiedBuyingChatIds.has(String(chat.id))) {
+    return true;
+  }
+
+  const statusSignals = [
+    chat.status,
+    chat.state,
+    chat.handoff_reason,
+    chat.handoff_status,
+    chat.deal_status,
+    chat.order_status,
+    ...(Array.isArray(chat.tags) ? chat.tags : []),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (
+    chat.handoff_required ||
+    statusSignals.includes("handoff") ||
+    statusSignals.includes("deal") ||
+    statusSignals.includes("buy") ||
+    statusSignals.includes("order") ||
+    statusSignals.includes("покуп") ||
+    statusSignals.includes("сделк")
+  ) {
+    return true;
+  }
+
+  const hasPreviewSignal = hasBuyingIntent(getChatPreviewText(chat));
+  if (hasPreviewSignal && chat.id) {
+    qualifiedBuyingChatIds.add(String(chat.id));
+    saveQualifiedBuyingChatIds();
+  }
+  return hasPreviewSignal;
+}
+
+function markBuyingChatFromMessages(chatId, messages) {
+  if (!chatId || qualifiedBuyingChatIds.has(String(chatId))) return;
+  const text = messages.map(getMessageText).filter(Boolean).join("\n");
+  if (!text || !hasBuyingIntent(text)) return;
+  qualifiedBuyingChatIds.add(String(chatId));
+  saveQualifiedBuyingChatIds();
+}
+
+function hasBuyingIntent(text) {
+  return SERVICE_PURCHASE_TRIGGER_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function compileServicePurchaseTriggerPatterns() {
+  const triggerGroups = window.AVITO_BOT_RULES?.servicePurchaseTriggers || {};
+  return Object.values(triggerGroups)
+    .flatMap((group) => (Array.isArray(group) ? group : []))
+    .map((source) => {
+      try {
+        return new RegExp(source, "i");
+      } catch (error) {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
+function getMessageText(message) {
+  return message.content?.text || message.content?.link?.text || message.message?.text || message.text || "";
+}
+
+function loadQualifiedBuyingChatIds() {
+  try {
+    return new Set(JSON.parse(window.localStorage.getItem(QUALIFIED_BUYING_CHAT_IDS_KEY) || "[]").map(String));
+  } catch (error) {
+    return new Set();
+  }
+}
+
+function saveQualifiedBuyingChatIds() {
+  try {
+    window.localStorage.setItem(QUALIFIED_BUYING_CHAT_IDS_KEY, JSON.stringify([...qualifiedBuyingChatIds]));
+  } catch (error) {
+    // Non-critical: classification still works for the current render.
+  }
+}
+
+function syncOpenChatFolders(groups) {
+  const knownKeys = new Set(groups.map((group) => group.key));
+  [...openChatFolderKeys].forEach((key) => {
+    if (!knownKeys.has(key)) openChatFolderKeys.delete(key);
+  });
+  const knownBucketKeys = new Set();
+  groups.forEach((group) => {
+    knownBucketKeys.add(getChatBucketKey(group.key, "buying"));
+    knownBucketKeys.add(getChatBucketKey(group.key, "other"));
+  });
+  [...openChatBucketKeys].forEach((key) => {
+    if (!knownBucketKeys.has(key)) openChatBucketKeys.delete(key);
+  });
+
+  const activeGroup = groups.find((group) => group.chats.some((chat) => String(chat.id) === String(activeChatId)));
+  if (activeGroup) {
+    openChatFolderKeys.add(activeGroup.key);
+    const activeBucket = isBuyingChat(activeGroup.chats.find((chat) => String(chat.id) === String(activeChatId)))
+      ? "buying"
+      : "other";
+    openChatBucketKeys.add(getChatBucketKey(activeGroup.key, activeBucket));
+  }
+
+  if (!chatFoldersInitialized) {
+    const firstGroup = activeGroup || groups[0];
+    if (firstGroup) {
+      openChatFolderKeys.add(firstGroup.key);
+      const buckets = splitChatsByBuyingIntent(firstGroup.chats);
+      openChatBucketKeys.add(getChatBucketKey(firstGroup.key, buckets.buying.length ? "buying" : "other"));
+    }
+    chatFoldersInitialized = true;
+  }
+}
+
+function toggleChatFolder(key) {
+  if (openChatFolderKeys.has(key)) {
+    openChatFolderKeys.delete(key);
+  } else {
+    openChatFolderKeys.add(key);
+  }
+  renderChats(currentChats);
+}
+
+function getChatBucketKey(groupKey, bucketKey) {
+  return `${groupKey}::${bucketKey}`;
+}
+
+function toggleChatBucket(key) {
+  if (openChatBucketKeys.has(key)) {
+    openChatBucketKeys.delete(key);
+  } else {
+    openChatBucketKeys.add(key);
+  }
+  renderChats(currentChats);
+}
+
+function findCurrentChat(chatId) {
+  return currentChats.find((chat) => String(chat.id) === String(chatId)) || null;
+}
+
+function mergeChatDetails(summary, details) {
+  if (!summary) return details || {};
+  if (!details) return summary;
+  return {
+    ...details,
+    title: details.title || summary.title,
+    name: details.name || summary.name,
+    display_name: details.display_name || summary.display_name,
+    chat_title: details.chat_title || summary.chat_title,
+    thread_title: details.thread_title || summary.thread_title,
+    last_message: details.last_message || summary.last_message,
+    users: details.users || summary.users,
+    participants: details.participants || summary.participants,
+    members: details.members || summary.members,
+  };
+}
+
+function groupChatsByItem(chats) {
+  const groupsByKey = new Map();
+  chats.forEach((chat) => {
+    const item = getChatItemContext(chat);
+    const title = getItemTitle(item, chat);
+    const key = getItemKey(item, title);
+    if (!groupsByKey.has(key)) {
+      groupsByKey.set(key, { key, title, chats: [] });
+    }
+    groupsByKey.get(key).chats.push(chat);
+  });
+  return [...groupsByKey.values()];
+}
+
+function getChatItemContext(chat) {
+  return chat.context?.value || chat.item || {};
+}
+
+function getItemKey(item, title) {
+  return String(item.id || item.item_id || item.url || `${title}|${item.price_string || ""}` || "unknown-item");
+}
+
+function getItemTitle(item, chat) {
+  return item.title || chat.context?.title || "Объявление без названия";
+}
+
+function getChatDisplayTitle(chat) {
+  return getBuyerName(chat) || "Клиент без имени";
+}
+
+function getChatMeta(chat) {
+  const profile = getBuyerProfileLabel(chat);
+  const chatId = chat.id ? `чат ${chat.id}` : "чат без ID";
+  return profile ? `${profile} · ${chatId}` : chatId;
+}
+
+function getChatPreviewText(chat) {
+  return (
+    chat.last_message?.content?.text ||
+    chat.last_message?.message?.text ||
+    chat.last_message?.text ||
+    chat.context?.value?.price_string ||
+    "Нет текста"
+  );
+}
+
+function getBuyerName(chat) {
+  const chatTitleName = getChatClientTitle(chat);
+  if (chatTitleName) return chatTitleName;
+
+  const directName = pickPersonName(chat.buyer || chat.client || chat.customer || chat.sender);
+  if (directName) return directName;
+
+  const users = getChatUsers(chat);
+  const authorId = getLastMessageDirection(chat) === "in" ? getLastMessageAuthorId(chat) : "";
+  if (authorId) {
+    const author = users.find((user) => String(user.id || user.user_id || user.author_id) === String(authorId));
+    const authorName = pickPersonName(author);
+    if (authorName) return authorName;
+  }
+
+  const visibleUser = users.find((user) => !isSellerUser(chat, user));
+  const visibleName = pickPersonName(visibleUser);
+  if (visibleName) return visibleName;
+
+  return chat.last_message?.author_name || pickPersonName(chat.last_message?.author || chat.last_message?.from);
+}
+
+function getChatClientTitle(chat) {
+  const itemTitle = getItemTitle(getChatItemContext(chat), chat);
+  const candidates = [chat.title, chat.name, chat.display_name, chat.chat_title, chat.thread_title];
+  return candidates.map(cleanClientNameCandidate).find((name) => name && name !== itemTitle) || "";
+}
+
+function cleanClientNameCandidate(value) {
+  if (typeof value !== "string") return "";
+  const text = value.trim();
+  if (!text || /^https?:\/\//i.test(text)) return "";
+  return text;
+}
+
+function getBuyerProfileLabel(chat) {
+  const directProfile =
+    chat.buyer?.profile_url ||
+    chat.buyer?.url ||
+    chat.client?.profile_url ||
+    chat.client?.url ||
+    chat.user?.profile_url ||
+    chat.user?.url;
+  if (directProfile) return directProfile;
+
+  const users = getChatUsers(chat);
+  const authorId = getLastMessageDirection(chat) === "in" ? getLastMessageAuthorId(chat) : "";
+  const user =
+    users.find((candidate) => String(candidate.id || candidate.user_id || candidate.author_id) === String(authorId)) ||
+    users.find((candidate) => !isSellerUser(chat, candidate));
+  return user?.profile_url || user?.url || user?.public_user_profile?.url || "";
+}
+
+function getChatUsers(chat) {
+  const sources = [chat.users, chat.participants, chat.members, chat.context?.users];
+  return sources.flatMap((value) => (Array.isArray(value) ? value : []));
+}
+
+function getLastMessageAuthorId(chat) {
+  return chat.last_message?.author_id || chat.last_message?.user_id || chat.last_message?.sender_id || "";
+}
+
+function getLastMessageDirection(chat) {
+  return chat.last_message?.direction || "";
+}
+
+function pickPersonName(person) {
+  if (typeof person === "string") return person.trim();
+  if (!person || typeof person !== "object") return "";
+  return (
+    person.name ||
+    person.display_name ||
+    person.public_name ||
+    person.profile?.name ||
+    person.public_user_profile?.name ||
+    person.title ||
+    ""
+  );
+}
+
+function isSellerUser(chat, user) {
+  const sellerId = getChatSellerId(chat);
+  const userId = user?.id || user?.user_id || user?.author_id || user?.public_user_profile?.user_id;
+  if (sellerId && userId && String(sellerId) === String(userId)) return true;
+  const role = String(user?.role || user?.type || "").toLowerCase();
+  return role.includes("seller") || role.includes("manager") || role.includes("owner") || role.includes("business");
+}
+
+function getChatSellerId(chat) {
+  const item = getChatItemContext(chat);
+  return item.user_id || chat.seller_id || chat.owner_id || chat.account_id || "";
 }
 
 function renderMessages(messages) {
@@ -441,9 +934,59 @@ function getMessageRole(message) {
     return { label: "Система Avito", className: "system" };
   }
   if (message.direction === "out") {
-    return { label: "Менеджер", className: "out" };
+    return { label: getOutgoingMessageLabel(message), className: "out" };
   }
-  return { label: "Клиент", className: "in" };
+  return { label: getIncomingMessageLabel(message), className: "in" };
+}
+
+function getIncomingMessageLabel(message) {
+  const chat = activeChat || {};
+  const name =
+    getChatClientTitle(chat) ||
+    getChatParticipantNameById(chat, getMessageAuthorId(message)) ||
+    getMessageAuthorName(message) ||
+    getBuyerName(chat);
+  const reference = getMessageAuthorReference(message) || (activeChatId ? `чат ${activeChatId}` : "");
+  if (name && reference) return `Клиент: ${name} · ${reference}`;
+  if (name) return `Клиент: ${name}`;
+  if (reference) return `Клиент · ${reference}`;
+  return "Клиент";
+}
+
+function getOutgoingMessageLabel(message) {
+  const name = getMessageAuthorName(message) || getChatParticipantNameById(activeChat || {}, getMessageAuthorId(message));
+  const reference = getMessageAuthorReference(message);
+  if (name && reference) return `Менеджер: ${name} · ${reference}`;
+  if (name) return `Менеджер: ${name}`;
+  if (reference) return `Менеджер · ${reference}`;
+  return "Менеджер";
+}
+
+function getMessageAuthorName(message) {
+  return (
+    message.author_name ||
+    message.user_name ||
+    message.sender_name ||
+    pickPersonName(message.author || message.from || message.sender || message.user)
+  );
+}
+
+function getMessageAuthorReference(message) {
+  const authorId = getMessageAuthorId(message);
+  return authorId ? `id ${authorId}` : "";
+}
+
+function getMessageAuthorId(message) {
+  return message.author_id || message.user_id || message.sender_id || message.from_id || "";
+}
+
+function getChatParticipantNameById(chat, authorId) {
+  if (!authorId) return "";
+  const participant = getChatUsers(chat).find((user) => {
+    const userId = user?.id || user?.user_id || user?.author_id || user?.public_user_profile?.user_id;
+    return String(userId) === String(authorId);
+  });
+  return pickPersonName(participant);
 }
 
 function formatMessageTime(date, type) {
@@ -548,11 +1091,12 @@ function renderError(text) {
 }
 
 async function api(url, options = {}) {
-  const response = await fetch(url, options);
+  const { quiet = false, ...fetchOptions } = options;
+  const response = await fetch(url, fetchOptions);
   const contentType = response.headers.get("content-type") || "";
   const data = contentType.includes("application/json") ? await response.json() : await response.text();
   if (!response.ok) {
-    showOutput({ status: response.status, error: data });
+    if (!quiet) showOutput({ status: response.status, error: data });
     throw new Error(extractErrorMessage(data, response.status));
   }
   return data;
