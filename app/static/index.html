@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>avito-bot</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>avito-bot</h1>
+          <p id="connectionLine">Checking environment...</p>
+        </div>
+        <div class="toolbar">
+          <button id="refreshStatusButton" type="button">Status</button>
+          <button id="tokenButton" type="button">Token</button>
+          <button id="accountButton" type="button">Account</button>
+          <button id="chatsButton" type="button">Chats</button>
+          <button id="processUnreadButton" type="button">Process unread</button>
+          <label class="inline-toggle">
+            <input id="autoProcessInput" type="checkbox" checked />
+            <span>Auto reply</span>
+          </label>
+          <button id="aiPingButton" type="button">DeepSeek</button>
+        </div>
+        <p id="automationLine" class="automation-line">Auto reply idle</p>
+      </header>
+
+      <section class="workspace">
+        <aside class="panel chats-panel">
+          <div class="panel-header">
+            <h2>Chats</h2>
+            <label class="inline-toggle">
+              <input id="unreadOnlyInput" type="checkbox" />
+              <span>Unread</span>
+            </label>
+          </div>
+          <div id="chatList" class="chat-list"></div>
+        </aside>
+
+        <section class="panel conversation-panel">
+          <div class="panel-header">
+            <h2 id="conversationTitle">Conversation</h2>
+            <div class="panel-actions">
+              <button id="draftButton" type="button" disabled>AI draft</button>
+              <button id="readButton" type="button" disabled>Read</button>
+            </div>
+          </div>
+          <div id="botActivity" class="bot-activity">Бот ждёт входящих сообщений</div>
+          <div id="messageList" class="message-list"></div>
+          <section id="draftPanel" class="draft-panel" hidden>
+            <div class="draft-header">
+              <strong>AI draft</strong>
+              <button id="useDraftButton" type="button">Use draft</button>
+            </div>
+            <div id="draftText" class="draft-text"></div>
+          </section>
+          <form id="sendForm" class="send-form">
+            <input id="messageInput" type="text" placeholder="Message to Avito" disabled />
+            <button id="sendButton" type="submit" disabled>Send</button>
+          </form>
+        </section>
+
+        <aside class="panel inspector-panel">
+          <div class="panel-header">
+            <h2>API response</h2>
+            <button id="webhooksButton" type="button">Webhook</button>
+          </div>
+          <pre id="output">{}</pre>
+        </aside>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

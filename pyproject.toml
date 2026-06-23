@@ -1,0 +1,20 @@
+[project]
+name = "avito-bot"
+version = "0.1.0"
+description = "Avito-first AI conversation automation MVP"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.116.0",
+    "httpx>=0.28.0",
+    "python-dotenv>=1.0.1",
+    "uvicorn[standard]>=0.35.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
