@@ -39,6 +39,7 @@ let activeChat = null;
 let activeMessagesResponse = null;
 let activeMessagesFingerprint = "";
 let activeChatRequestId = 0;
+let loadingChatId = null;
 let automationBusy = false;
 let pollingTimer = null;
 let currentChats = [];
@@ -136,15 +137,20 @@ async function loadChats({ show = true } = {}) {
 }
 
 async function loadMessages(chatId, { resetDraft = true, show = true, chatSummary = null } = {}) {
+  if (loadingChatId && String(loadingChatId) === String(chatId) && resetDraft === false && show === false) {
+    return;
+  }
   const requestId = ++activeChatRequestId;
   const isSameActiveChat = String(activeChatId) === String(chatId);
   const isBackgroundRefresh =
     isSameActiveChat && activeMessagesResponse && resetDraft === false && show === false;
+  const isPrimaryLoad = !isBackgroundRefresh;
 
   activeChatId = chatId;
   activeChat = chatSummary || findCurrentChat(chatId) || (isSameActiveChat ? activeChat : null);
 
-  if (!isBackgroundRefresh) {
+  if (isPrimaryLoad) {
+    loadingChatId = String(chatId);
     activeMessagesResponse = null;
     activeMessagesFingerprint = "";
     if (resetDraft) hideDraft();
@@ -187,6 +193,10 @@ async function loadMessages(chatId, { resetDraft = true, show = true, chatSummar
   } catch (error) {
     if (requestId !== activeChatRequestId || String(activeChatId) !== String(chatId)) return;
     renderError(error.message);
+  } finally {
+    if (requestId === activeChatRequestId && String(loadingChatId) === String(chatId)) {
+      loadingChatId = null;
+    }
   }
 }
 
