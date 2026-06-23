@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>avito-bot</title>
-    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260624-manual-visual" />
   </head>
   <body>
     <main class="app-shell">
@@ -54,10 +54,9 @@
               </a>
             </div>
             <div class="panel-actions">
-              <label class="inline-toggle chat-control-toggle">
-                <input id="managerTakeoverInput" type="checkbox" disabled />
-                <span>Ручной режим</span>
-              </label>
+              <button id="managerTakeoverButton" class="chat-control-toggle" type="button" disabled aria-pressed="false">
+                Включить ручной режим
+              </button>
               <button id="draftButton" type="button" disabled hidden>AI draft</button>
               <button id="readButton" type="button" disabled hidden>Read</button>
             </div>
@@ -149,6 +148,6 @@
     </main>
 
     <script src="/static/bot-rules.js"></script>
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=20260624-manual-visual"></script>
   </body>
 </html>

@@ -18,8 +18,7 @@ const draftText = document.querySelector("#draftText");
 const unreadOnlyInput = document.querySelector("#unreadOnlyInput");
 const processUnreadButton = document.querySelector("#processUnreadButton");
 const autoProcessInput = document.querySelector("#autoProcessInput");
-const managerTakeoverInput = document.querySelector("#managerTakeoverInput");
-const managerTakeoverControl = document.querySelector(".chat-control-toggle");
+const managerTakeoverButton = document.querySelector("#managerTakeoverButton");
 const automationLine = document.querySelector("#automationLine");
 const botActivity = document.querySelector("#botActivity");
 const refreshStatsItemsButton = document.querySelector("#refreshStatsItemsButton");
@@ -45,6 +44,8 @@ let pollingTimer = null;
 let currentChats = [];
 let currentChatsFingerprint = "";
 let currentStatsItems = [];
+const chatBotControlByChatId = new Map();
+const pendingChatBotControlByChatId = new Map();
 let chatFoldersInitialized = false;
 const openChatFolderKeys = new Set();
 const openChatBucketKeys = new Set();
@@ -66,11 +67,12 @@ processUnreadButton.addEventListener("click", () => processUnread({ show: true }
 document.querySelector("#aiPingButton").addEventListener("click", pingAi);
 document.querySelector("#webhooksButton").addEventListener("click", loadWebhookEvents);
 document.querySelector("#sendForm").addEventListener("submit", sendMessage);
+chatList.addEventListener("click", handleChatListClick);
 readButton.addEventListener("click", markRead);
 draftButton.addEventListener("click", draftReply);
 useDraftButton.addEventListener("click", useDraft);
 autoProcessInput.addEventListener("change", syncServerAutoReply);
-managerTakeoverInput.addEventListener("change", syncChatBotControl);
+managerTakeoverButton.addEventListener("click", syncChatBotControl);
 refreshStatsItemsButton.addEventListener("click", refreshStatsItems);
 loadStatsButton.addEventListener("click", loadItemStats);
 
@@ -151,8 +153,11 @@ async function loadMessages(chatId, { resetDraft = true, show = true, chatSummar
     messageInput.disabled = false;
     sendButton.disabled = false;
     readButton.disabled = false;
-    managerTakeoverInput.disabled = true;
+    applyChatBotControlState(getCachedChatBotControl(chatId), { setActivity: false });
+    managerTakeoverButton.disabled = false;
     draftButton.disabled = true;
+    renderChats(currentChats);
+    renderMessagesLoading();
   }
 
   try {
@@ -208,42 +213,71 @@ async function markRead() {
 async function loadChatBotControl(chatId, { show = false } = {}) {
   const data = await api(`/api/avito/chats/${encodeURIComponent(chatId)}/bot-control`, { quiet: true });
   if (show) showOutput(data);
-  updateChatBotControl(data);
+  updateChatBotControl(data, { source: "server" });
   return data;
 }
 
 async function syncChatBotControl() {
   if (!activeChatId) return;
-  const requestedManagerTakeover = managerTakeoverInput.checked;
-  managerTakeoverInput.disabled = true;
+  const chatId = activeChatId;
+  const previousControl = getCachedChatBotControl(chatId);
+  const requestedManagerTakeover = !isManagerTakeoverPressed();
+  pendingChatBotControlByChatId.set(String(chatId), requestedManagerTakeover);
+  updateChatBotControl(
+    { chat_id: chatId, manager_takeover: requestedManagerTakeover, bot_enabled: !requestedManagerTakeover },
+    { source: "local" },
+  );
+  managerTakeoverButton.disabled = true;
   try {
-    const data = await api(`/api/avito/chats/${encodeURIComponent(activeChatId)}/bot-control`, {
+    const data = await api(`/api/avito/chats/${encodeURIComponent(chatId)}/bot-control`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ manager_takeover: requestedManagerTakeover }),
       quiet: true,
     });
     showOutput(data);
-    updateChatBotControl(data);
+    pendingChatBotControlByChatId.delete(String(chatId));
+    updateChatBotControl(data, { source: "server" });
   } catch (error) {
-    managerTakeoverInput.checked = !requestedManagerTakeover;
+    pendingChatBotControlByChatId.delete(String(chatId));
+    updateChatBotControl(previousControl, { source: "local" });
     if (/404|not found/i.test(error.message)) {
       disableChatBotControl(error.message);
     } else {
       showOutput({ error: error.message });
     }
   } finally {
-    managerTakeoverInput.disabled = !activeChatId || (managerTakeoverControl && managerTakeoverControl.hidden);
+    managerTakeoverButton.disabled = !activeChatId;
   }
 }
 
-function updateChatBotControl(data) {
-  if (managerTakeoverControl) managerTakeoverControl.hidden = false;
-  managerTakeoverInput.checked = data.manager_takeover === true;
-  managerTakeoverInput.disabled = !activeChatId;
-  if (managerTakeoverControl) {
-    managerTakeoverControl.classList.toggle("active", data.manager_takeover === true);
+function updateChatBotControl(data, { source = "server" } = {}) {
+  const dataChatId = data.chat_id ? String(data.chat_id) : "";
+  const pendingValue = dataChatId ? pendingChatBotControlByChatId.get(dataChatId) : undefined;
+  if (source === "server" && pendingValue !== undefined && data.manager_takeover !== pendingValue) {
+    return;
   }
+  if (dataChatId) {
+    chatBotControlByChatId.set(dataChatId, data);
+  }
+  if (dataChatId && activeChatId && dataChatId !== String(activeChatId)) {
+    return;
+  }
+  applyChatBotControlState(data);
+}
+
+function getCachedChatBotControl(chatId) {
+  return chatBotControlByChatId.get(String(chatId)) || {
+    chat_id: String(chatId),
+    manager_takeover: false,
+    bot_enabled: true,
+  };
+}
+
+function applyChatBotControlState(data, { setActivity = true } = {}) {
+  setManagerTakeoverPressed(data.manager_takeover === true);
+  managerTakeoverButton.disabled = !activeChatId;
+  if (!setActivity) return;
   if (data.manager_takeover) {
     setBotActivity("Ручной режим: бот выключен только в этом чате, отвечает оператор.", "active");
   } else {
@@ -252,14 +286,18 @@ function updateChatBotControl(data) {
 }
 
 function disableChatBotControl(reason) {
-  managerTakeoverInput.checked = false;
-  managerTakeoverInput.disabled = true;
-  if (managerTakeoverControl) {
-    managerTakeoverControl.classList.remove("active");
-  }
-  if (managerTakeoverControl && /404|not found/i.test(reason)) {
-    managerTakeoverControl.hidden = true;
-  }
+  setManagerTakeoverPressed(false);
+  managerTakeoverButton.disabled = !activeChatId;
+}
+
+function isManagerTakeoverPressed() {
+  return managerTakeoverButton.getAttribute("aria-pressed") === "true";
+}
+
+function setManagerTakeoverPressed(pressed) {
+  managerTakeoverButton.setAttribute("aria-pressed", String(pressed));
+  managerTakeoverButton.classList.toggle("active", pressed);
+  managerTakeoverButton.textContent = pressed ? "Ручной режим включен" : "Включить ручной режим";
 }
 
 async function processUnread({ show = false } = {}) {
@@ -810,6 +848,15 @@ function renderChats(chats) {
   });
 }
 
+function handleChatListClick(event) {
+  const button = event.target.closest(".chat-item");
+  if (!button || !chatList.contains(button)) return;
+  const chatId = button.dataset.chatId;
+  if (!chatId) return;
+  const chat = findCurrentChat(chatId);
+  loadMessages(chatId, { chatSummary: chat });
+}
+
 function createChatBucket(groupKey, bucketKey, title, chats, { highlighted = false } = {}) {
   const key = getChatBucketKey(groupKey, bucketKey);
   const isOpen = openChatBucketKeys.has(key);
@@ -862,7 +909,7 @@ function createChatButton(chat) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = `chat-item ${String(chat.id) === String(activeChatId) ? "active" : ""}`;
-  button.addEventListener("click", () => loadMessages(chat.id, { chatSummary: chat }));
+  button.dataset.chatId = String(chat.id || "");
 
   const titleRow = document.createElement("div");
   titleRow.className = "chat-title-row";
@@ -1240,6 +1287,22 @@ function isSellerUser(chat, user) {
   if (sellerId && userId && String(sellerId) === String(userId)) return true;
   const role = String(user?.role || user?.type || "").toLowerCase();
   return role.includes("seller") || role.includes("manager") || role.includes("owner") || role.includes("business");
+}
+
+function renderMessagesLoading() {
+  messageList.innerHTML = "";
+  const loader = document.createElement("div");
+  loader.className = "message-loading";
+
+  const spinner = document.createElement("span");
+  spinner.className = "message-loading-spinner";
+  spinner.setAttribute("aria-hidden", "true");
+
+  const text = document.createElement("span");
+  text.textContent = "Загружаю переписку...";
+
+  loader.append(spinner, text);
+  messageList.append(loader);
 }
 
 function getChatSellerId(chat) {

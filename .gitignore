@@ -14,6 +14,7 @@ tools/deploy/ftp.local.json
 .env.*
 !.env.example
 .venv/
+.release/
 __pycache__/
 .pytest_cache/
 *.pyc
