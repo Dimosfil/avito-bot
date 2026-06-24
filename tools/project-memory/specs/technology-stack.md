@@ -11,7 +11,8 @@ stack facts, commands, runtime assumptions, and operational notes here.
 
 ## Summary
 
-- Primary stack: Python, FastAPI, static HTML/CSS/JavaScript, Avito HTTP API.
+- Primary stack: Python, FastAPI, static HTML/CSS/JavaScript, Avito HTTP API,
+  DeepSeek chat completions API.
 - Runtime model: local ASGI web app served by Uvicorn.
 - Current confidence: verified from `pyproject.toml`, source files, and tests.
 
@@ -23,6 +24,7 @@ stack facts, commands, runtime assumptions, and operational notes here.
 | Frontend | Static HTML/CSS/JavaScript | `app/static/` | No frontend build step yet. |
 | Backend/API | FastAPI | `app/main.py`, `pyproject.toml` | Serves API and static UI. |
 | Avito client | httpx | `app/avito_client.py`, `pyproject.toml` | Uses official Avito HTTP endpoints. |
+| AI provider client | httpx | `app/deepseek_client.py`, `app/assistant.py`, `pyproject.toml` | Calls DeepSeek chat completions for short sales-assistant drafts. |
 | Data/storage | In-memory webhook event list only | `app/main.py` | SQLite domain storage not implemented yet. |
 | Build/package | uv | `pyproject.toml`, `uv.lock` | `uv sync` creates `.venv`. |
 | Test/quality | pytest, compileall | `tests/`, `pyproject.toml` | Initial smoke tests exist. |
@@ -43,12 +45,13 @@ stack facts, commands, runtime assumptions, and operational notes here.
 | Service | Role | Evidence | Boundary |
 | --- | --- | --- | --- |
 | Avito API | First production channel for chats/messages | `tools/project-memory/specs/integration-contracts/avito-api.md` | Credentials in env only; API behind Avito client/adapter. |
+| DeepSeek API | First AI draft provider for sales replies | `tools/project-memory/specs/integration-contracts/connected-projects.md`, `app/deepseek_client.py` | API key in env only; provider behind `DeepSeekClient` and `SalesAssistant`. |
 
 ## Gaps
 
 - Persistent conversation storage is not implemented.
-- AI provider boundary is not implemented.
-- Final manager handoff UI is not implemented.
+- Platform-neutral local/test channel adapter is not implemented.
+- Final persisted manager notification and handoff workflow is not implemented.
 - Public HTTPS webhook hosting is not configured.
 - External production hosting is not configured; current production runtime is
   the project-local `.release/` folder.

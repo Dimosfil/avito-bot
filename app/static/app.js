@@ -52,14 +52,18 @@ let currentChatsFingerprint = "";
 let currentStatsItems = [];
 const chatBotControlByChatId = new Map();
 const pendingChatBotControlByChatId = new Map();
+const pendingMessagesByChatId = new Map();
+const sendingMessageChatIds = new Set();
 let chatFoldersInitialized = false;
 let lastAutoOpenedActiveChatId = null;
+let savedChatListScrollTop = 0;
 const openChatFolderKeys = new Set();
 const openChatBucketKeys = new Set();
 const openStatsRowKeys = new Set();
 
 const POLLING_INTERVAL_MS = 3000;
 const MESSAGE_SCROLL_BOTTOM_THRESHOLD = 80;
+const MANAGER_PAGE_STATE_KEY = "avito-bot-manager-page-state";
 const QUALIFIED_BUYING_CHAT_IDS_KEY = "avito-bot-qualified-buying-chat-ids";
 const STATS_SORT_KEY = "avito-bot-stats-sort";
 const STATS_SORT_FIELDS = new Set(["date", "title", "uniqViews", "uniqContacts", "uniqFavorites"]);
@@ -81,6 +85,10 @@ document.querySelector("#aiPingButton").addEventListener("click", pingAi);
 document.querySelector("#webhooksButton").addEventListener("click", loadWebhookEvents);
 document.querySelector("#sendForm").addEventListener("submit", sendMessage);
 chatList.addEventListener("click", handleChatListClick);
+chatList.addEventListener("scroll", () => {
+  savedChatListScrollTop = chatList.scrollTop;
+});
+window.addEventListener("beforeunload", saveManagerPageState);
 readButton.addEventListener("click", markRead);
 draftButton.addEventListener("click", draftReply);
 useDraftButton.addEventListener("click", useDraft);
@@ -94,11 +102,13 @@ statsTableHead.addEventListener("click", handleStatsHeaderClick);
 initialize();
 
 async function initialize() {
+  restoreManagerPageState();
   initializeStatsDates();
   const status = await refreshStatus();
   if (status.avito_client_id_configured && status.avito_client_secret_configured) {
     try {
       await loadChats();
+      await restoreActiveChat();
       refreshStatsItems();
       await syncServerAutoReply();
       startPolling();
@@ -153,6 +163,7 @@ async function loadChats({ show = true } = {}) {
     renderChats(currentChats);
     refreshStatsItems();
   }
+  restoreChatListScroll();
 }
 
 async function loadMessages(
@@ -170,6 +181,7 @@ async function loadMessages(
 
   activeChatId = chatId;
   activeChat = chatSummary || findCurrentChat(chatId) || (isSameActiveChat ? activeChat : null);
+  saveManagerPageState();
 
   if (isPrimaryLoad) {
     loadingChatId = String(chatId);
@@ -198,11 +210,12 @@ async function loadMessages(
     if (show) showOutput(data);
     const messages = normalizeMessages(data);
     const buyingStatusChanged = markBuyingChatFromMessages(chatId, messages);
-    const nextMessagesFingerprint = getMessagesFingerprint(messages);
+    const renderableMessages = getRenderableMessages(chatId, messages);
+    const nextMessagesFingerprint = getMessagesFingerprint(renderableMessages);
     if (!isBackgroundRefresh || nextMessagesFingerprint !== activeMessagesFingerprint) {
       const keepAtLatest = scrollToLatest || isPrimaryLoad || isMessageListNearBottom();
       activeMessagesFingerprint = nextMessagesFingerprint;
-      renderMessages(messages, { scrollToLatest: keepAtLatest });
+      renderMessages(renderableMessages, { scrollToLatest: keepAtLatest });
     } else if (scrollToLatest) {
       scrollMessageListToBottom();
     }
@@ -231,13 +244,40 @@ async function sendMessage(event) {
   const chatId = activeChatId;
   const text = messageInput.value.trim();
   if (!text) return;
-  const data = await api(`/api/avito/chats/${encodeURIComponent(chatId)}/messages`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
-  });
+  if (sendingMessageChatIds.has(String(chatId))) return;
+  sendingMessageChatIds.add(String(chatId));
+
+  const pendingMessage = addPendingMessage(chatId, text);
   messageInput.value = "";
-  showOutput(data);
+  sendButton.disabled = true;
+  renderActiveMessagesWithPending({ scrollToLatest: true });
+  setBotActivity("Sending message to Avito...", "active");
+
+  try {
+    const data = await api(`/api/avito/chats/${encodeURIComponent(chatId)}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    markPendingMessageStatus(chatId, pendingMessage.local_id, "sent");
+    showOutput(data);
+    setBotActivity("Message sent. Refreshing Avito history.", "active");
+  } catch (error) {
+    markPendingMessageStatus(chatId, pendingMessage.local_id, "failed", error.message);
+    if (String(activeChatId) === String(chatId) && !messageInput.value.trim()) {
+      messageInput.value = text;
+    }
+    showOutput({ error: error.message });
+    setBotActivity(`Message was not sent: ${error.message}`, "error");
+    return;
+  } finally {
+    sendingMessageChatIds.delete(String(chatId));
+    if (String(activeChatId) === String(chatId)) {
+      sendButton.disabled = false;
+      messageInput.focus();
+    }
+  }
+
   if (String(activeChatId) === String(chatId)) {
     await loadMessages(chatId, { resetDraft: false, show: false, scrollToLatest: true });
   }
@@ -576,13 +616,84 @@ async function loadWebhookEvents() {
   showOutput(await api("/api/webhooks/avito/events"));
 }
 
-function showView(view) {
+function showView(view, { save = true } = {}) {
   const showStats = view === "stats";
   chatView.hidden = showStats;
   statsView.hidden = !showStats;
   chatTabButton.classList.toggle("active", !showStats);
   statsTabButton.classList.toggle("active", showStats);
   if (showStats) refreshStatsItems();
+  if (save) saveManagerPageState();
+}
+
+async function restoreActiveChat() {
+  if (!activeChatId) return;
+  const chatId = activeChatId;
+  const chat = findCurrentChat(chatId);
+  if (!chat) {
+    activeChatId = null;
+    activeChat = null;
+    saveManagerPageState();
+    renderChats(currentChats);
+    return;
+  }
+  await loadMessages(chatId, { resetDraft: false, show: false, chatSummary: chat, scrollToLatest: true });
+}
+
+function restoreManagerPageState() {
+  const state = loadManagerPageState();
+  openChatFolderKeys.clear();
+  openChatBucketKeys.clear();
+  state.openChatFolderKeys.forEach((key) => openChatFolderKeys.add(key));
+  state.openChatBucketKeys.forEach((key) => openChatBucketKeys.add(key));
+  activeChatId = state.activeChatId || null;
+  savedChatListScrollTop = state.chatListScrollTop || 0;
+  chatFoldersInitialized = Boolean(activeChatId || openChatFolderKeys.size || openChatBucketKeys.size);
+  showView(state.view === "stats" ? "stats" : "chats", { save: false });
+}
+
+function loadManagerPageState() {
+  try {
+    const state = JSON.parse(window.localStorage.getItem(MANAGER_PAGE_STATE_KEY) || "{}");
+    return {
+      view: state.view === "stats" ? "stats" : "chats",
+      activeChatId: state.activeChatId ? String(state.activeChatId) : "",
+      chatListScrollTop: Number.isFinite(Number(state.chatListScrollTop)) ? Number(state.chatListScrollTop) : 0,
+      openChatFolderKeys: Array.isArray(state.openChatFolderKeys) ? state.openChatFolderKeys.map(String) : [],
+      openChatBucketKeys: Array.isArray(state.openChatBucketKeys) ? state.openChatBucketKeys.map(String) : [],
+    };
+  } catch (error) {
+    return {
+      view: "chats",
+      activeChatId: "",
+      chatListScrollTop: 0,
+      openChatFolderKeys: [],
+      openChatBucketKeys: [],
+    };
+  }
+}
+
+function saveManagerPageState() {
+  try {
+    window.localStorage.setItem(
+      MANAGER_PAGE_STATE_KEY,
+      JSON.stringify({
+        view: statsView.hidden ? "chats" : "stats",
+        activeChatId: activeChatId ? String(activeChatId) : "",
+        chatListScrollTop: savedChatListScrollTop || chatList.scrollTop || 0,
+        openChatFolderKeys: [...openChatFolderKeys],
+        openChatBucketKeys: [...openChatBucketKeys],
+      }),
+    );
+  } catch (error) {
+    // Non-critical: the UI still works without persisted browser state.
+  }
+}
+
+function restoreChatListScroll() {
+  window.requestAnimationFrame(() => {
+    chatList.scrollTop = savedChatListScrollTop;
+  });
 }
 
 function initializeStatsDates() {
@@ -1165,11 +1276,13 @@ function getMessagesFingerprint(messages) {
   return JSON.stringify(
     messages.map((message) => ({
       id: message.id || message.message_id,
+      local_id: message.local_id,
       created: message.created || message.created_at,
       author_id: getMessageAuthorId(message),
       direction: message.direction,
       type: message.type,
       text: getMessageText(message),
+      delivery_status: message.delivery_status,
     })),
   );
 }
@@ -1219,6 +1332,7 @@ function renderChats(chats) {
     folder.append(nestedList);
     chatList.append(folder);
   });
+  restoreChatListScroll();
 }
 
 function handleChatListClick(event) {
@@ -1412,8 +1526,12 @@ function saveQualifiedBuyingChatIds() {
 
 function syncOpenChatFolders(groups) {
   const knownKeys = new Set(groups.map((group) => group.key));
+  let changed = false;
   [...openChatFolderKeys].forEach((key) => {
-    if (!knownKeys.has(key)) openChatFolderKeys.delete(key);
+    if (!knownKeys.has(key)) {
+      openChatFolderKeys.delete(key);
+      changed = true;
+    }
   });
   const knownBucketKeys = new Set();
   groups.forEach((group) => {
@@ -1421,7 +1539,10 @@ function syncOpenChatFolders(groups) {
     knownBucketKeys.add(getChatBucketKey(group.key, "other"));
   });
   [...openChatBucketKeys].forEach((key) => {
-    if (!knownBucketKeys.has(key)) openChatBucketKeys.delete(key);
+    if (!knownBucketKeys.has(key)) {
+      openChatBucketKeys.delete(key);
+      changed = true;
+    }
   });
 
   const activeChatKey = activeChatId ? String(activeChatId) : "";
@@ -1433,6 +1554,7 @@ function syncOpenChatFolders(groups) {
       : "other";
     openChatBucketKeys.add(getChatBucketKey(activeGroup.key, activeBucket));
     lastAutoOpenedActiveChatId = activeChatKey;
+    changed = true;
   }
 
   if (!chatFoldersInitialized) {
@@ -1441,9 +1563,11 @@ function syncOpenChatFolders(groups) {
       openChatFolderKeys.add(firstGroup.key);
       const buckets = splitChatsByBuyingIntent(firstGroup.chats);
       openChatBucketKeys.add(getChatBucketKey(firstGroup.key, buckets.buying.length ? "buying" : "other"));
+      changed = true;
     }
     chatFoldersInitialized = true;
   }
+  if (changed) saveManagerPageState();
 }
 
 function toggleChatFolder(key) {
@@ -1452,6 +1576,7 @@ function toggleChatFolder(key) {
   } else {
     openChatFolderKeys.add(key);
   }
+  saveManagerPageState();
   renderChats(currentChats);
 }
 
@@ -1465,6 +1590,7 @@ function toggleChatBucket(key) {
   } else {
     openChatBucketKeys.add(key);
   }
+  saveManagerPageState();
   renderChats(currentChats);
 }
 
@@ -1707,6 +1833,9 @@ function renderMessages(messages, { scrollToLatest = false } = {}) {
     const item = document.createElement("article");
     const role = getMessageRole(message);
     item.className = `message ${role.className}`;
+    if (message.delivery_status) {
+      item.classList.add(`delivery-${message.delivery_status}`);
+    }
 
     const meta = document.createElement("div");
     meta.className = "message-meta";
@@ -1716,7 +1845,10 @@ function renderMessages(messages, { scrollToLatest = false } = {}) {
 
     const time = document.createElement("span");
     time.className = "message-time";
-    time.textContent = formatMessageTime(createdAt, message.type);
+    const statusText = getDeliveryStatusText(message);
+    time.textContent = statusText
+      ? `${formatMessageTime(createdAt, message.type)} - ${statusText}`
+      : formatMessageTime(createdAt, message.type);
 
     meta.append(roleLabel, time);
 
@@ -1748,6 +1880,69 @@ function normalizeMessages(data) {
   if (Array.isArray(data)) return data;
   if (data && Array.isArray(data.messages)) return data.messages;
   return [];
+}
+
+function renderActiveMessagesWithPending({ scrollToLatest = false } = {}) {
+  if (!activeChatId) return;
+  const serverMessages = normalizeMessages(activeMessagesResponse);
+  renderMessages(getRenderableMessages(activeChatId, serverMessages), { scrollToLatest });
+  activeMessagesFingerprint = getMessagesFingerprint(getRenderableMessages(activeChatId, serverMessages));
+}
+
+function getRenderableMessages(chatId, serverMessages) {
+  reconcilePendingMessages(chatId, serverMessages);
+  return [...serverMessages, ...getPendingMessages(chatId)];
+}
+
+function getPendingMessages(chatId) {
+  return pendingMessagesByChatId.get(String(chatId)) || [];
+}
+
+function addPendingMessage(chatId, text) {
+  const key = String(chatId);
+  const pendingMessages = getPendingMessages(key);
+  const pendingMessage = {
+    local_id: `local-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    created: Date.now() / 1000,
+    direction: "out",
+    type: "text",
+    content: { text },
+    delivery_status: "sending",
+  };
+  pendingMessagesByChatId.set(key, [...pendingMessages, pendingMessage]);
+  return pendingMessage;
+}
+
+function markPendingMessageStatus(chatId, localId, status, error = "") {
+  const key = String(chatId);
+  const pendingMessages = getPendingMessages(key).map((message) => {
+    if (message.local_id !== localId) return message;
+    return { ...message, delivery_status: status, delivery_error: error };
+  });
+  pendingMessagesByChatId.set(key, pendingMessages);
+  if (String(activeChatId) === key) {
+    renderActiveMessagesWithPending({ scrollToLatest: true });
+  }
+}
+
+function reconcilePendingMessages(chatId, serverMessages) {
+  const key = String(chatId);
+  const pendingMessages = getPendingMessages(key);
+  if (!pendingMessages.length) return;
+
+  const remaining = pendingMessages.filter((pendingMessage) => {
+    if (pendingMessage.delivery_status !== "sent") return true;
+    return !serverMessages.some((serverMessage) => isServerCopyOfPendingMessage(serverMessage, pendingMessage));
+  });
+  if (remaining.length) {
+    pendingMessagesByChatId.set(key, remaining);
+  } else {
+    pendingMessagesByChatId.delete(key);
+  }
+}
+
+function isServerCopyOfPendingMessage(serverMessage, pendingMessage) {
+  return serverMessage.direction === "out" && getMessageText(serverMessage).trim() === getMessageText(pendingMessage).trim();
 }
 
 function orderMessages(messages) {
@@ -1872,6 +2067,14 @@ function getMessageTypeLabel(type) {
     location: "гео",
   };
   return labels[type] || type || "сообщение";
+}
+
+function getDeliveryStatusText(message) {
+  const status = message.delivery_status || "";
+  if (status === "sending") return "sending";
+  if (status === "sent") return "sent";
+  if (status === "failed") return "failed";
+  return "";
 }
 
 function appendMessageContent(container, message) {

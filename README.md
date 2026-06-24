@@ -104,6 +104,7 @@ The current hello-world app can:
 - read the authorized account through `core/v1/accounts/self`;
 - request chats through Messenger API;
 - read and send messages for a selected chat when API permissions allow it;
+- request per-listing Avito item statistics for views, contacts, and favorites;
 - generate a DeepSeek AI draft reply for a selected chat;
 - process unread Avito chats on demand or through the UI `Auto reply` polling
   switch; when enabled, a backend worker checks Avito independently of the
@@ -111,6 +112,10 @@ The current hello-world app can:
   handoff trigger is detected, marks the chat read, and returns bot-processing
   estimates such as accepted time, estimated reply time, sent time, and actual
   duration;
+- let a manager switch an individual chat into manual takeover mode so
+  auto-reply skips that chat while manual Avito messages remain available;
+- show a statistics view that links known listing metric rows back to loaded
+  client conversations when the chat payload exposes matching listing data;
 - receive local Avito webhook payloads at `/webhooks/avito/messenger`.
 
 AI replies can be review-first through `AI draft`, or automatic for unread Avito
@@ -124,6 +129,8 @@ prompt guardrails, and deterministic cleanup such as removing repeated greetings
 
 - Product and runtime instructions: `AGENTS.md`
 - Project runbook: `tools/AGENT_RUNBOOK.md`
+- Canonical technology stack inventory:
+  `tools/project-memory/specs/technology-stack.md`
 - Durable feature specs: `tools/project-memory/specs/`
 - Active plan: `tools/project-memory/pending-tasks.md`
 - Avito integration notes:

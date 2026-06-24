@@ -499,6 +499,24 @@ input:disabled {
   background: #dcf2ff;
 }
 
+.message.delivery-sending {
+  opacity: 0.78;
+}
+
+.message.delivery-sent {
+  box-shadow: inset 0 -2px 0 rgba(30, 132, 73, 0.18);
+}
+
+.message.delivery-failed {
+  background: #fff0ed;
+  border: 1px solid #f1b6ad;
+}
+
+.message.delivery-failed .message-time {
+  color: var(--danger);
+  font-weight: 700;
+}
+
 .message.system {
   max-width: 92%;
   margin-left: auto;

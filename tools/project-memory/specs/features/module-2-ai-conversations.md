@@ -108,6 +108,17 @@ First runnable slice:
   chat title/client label or chat id so the manager can still correlate the
   speaker. The UI must preserve the selected chat-list summary while loading
   detailed chat payloads so a correct Avito chat-title client name is not lost.
+- Manual manager messages must appear in the active conversation immediately
+  after submit with an explicit delivery status while the Avito API request is
+  in flight. The browser may keep this local pending copy until the server
+  history includes the matching outbound message, then remove the local copy to
+  avoid duplicates. If sending fails, the failed bubble remains visible and the
+  draft text is restored to the input when possible.
+- The manager UI must preserve the current browser page state across refreshes:
+  selected tab, active chat, opened listing folders, opened chat buckets, and
+  chat-list scroll position. After reload, the UI should restore the selected
+  chat after the chat list is loaded instead of forcing the manager to reopen
+  folders manually.
 - Each listing folder must contain a visually distinct `Согласились купить`
   bucket for chats whose latest available channel metadata or message text
   indicates purchase, need/request, deal, order, commercial proposal, manager
