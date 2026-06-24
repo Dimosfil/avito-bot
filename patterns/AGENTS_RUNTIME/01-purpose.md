@@ -125,6 +125,23 @@ shared baseline, and keep the answer informational: do not run startup restore,
 resume old work, call task managers, mutate files, or execute the listed
 commands unless the user asks for a specific command next.
 
+Treat `gi info` and `ги инфо` as requests to find or build the current
+project's orientation inventory: purpose, target users or stakeholders,
+user-visible functionality, common workflows, technology stack, and open
+documentation gaps. The agent must use the project documentation layer for the
+overview, visible functionality, commands, operations, troubleshooting, and
+stack pointers, while keeping implementation-driving business rules, workflow
+contracts, algorithms, invariants, and architecture decisions in project memory.
+The command should update or create durable documentation when the inventory is
+missing or stale, and mark unknowns as evidence-backed gaps instead of inventing
+facts. New or updated project information must follow the configured project
+working-environment language order from `gi язык` / `gi language`; do not use
+commit-message or task-manager language preferences for this documentation. If
+the existing documentation already matches the verified current facts, report
+that it is current and do not rewrite files. If only part of the inventory has
+changed, update only the affected sections and avoid unrelated reformatting or
+wording churn.
+
 Treat connected projects as experience sources for `gi`. When a project reveals
 a reusable workflow, failure pattern, token-saving tactic, or agent instruction
 improvement, capture a concise recommendation with evidence and privacy review

@@ -57,6 +57,8 @@ gi restore
 gi sql
 gi sqlite
 gi vector
+gi info
+ги инфо
 gi stack
 ги стек
 gi rebuild
@@ -175,6 +177,7 @@ the listed commands.
 | `gi system language`, `gi систем язык` | Configure agent working-response language. |
 | `gi sql`, `gi sqlite` | Inspect SQLite/FTS project-memory readiness and metrics. |
 | `gi vector` | Inspect semantic/vector retrieval readiness and metrics. |
+| `gi info`, `ги инфо` | Find or build the current project's purpose, visible functionality, and stack overview. |
 | `gi stack`, `ги стек` | Find or build the current project's verified technology stack inventory. |
 | `gi rebuild`, `ги ребилд` | Rebuild the current project/application only, such as producing a build artifact or exe. |
 | `gi tools rebuild`, `gi rag rebuild`, `ги тулс ребилд`, `ги раг ребилд` | Rebuild the full configured GI/project-memory/RAG system after confirmation. |
@@ -305,6 +308,56 @@ index path, freshness caveats, and readiness.
 These are inspection commands by default. They do not deploy external services,
 install heavy dependencies, upload data, or index private sources unless the
 user explicitly asks and project-local rules allow it.
+
+### Собрать Информацию О Проекте
+
+```text
+gi info
+ги инфо
+```
+
+`gi info` / `ги инфо` asks the agent to find or build the current project's
+orientation inventory: project purpose, target users or stakeholders,
+user-visible functionality, common workflows, technology stack, and open
+documentation gaps. The agent first reads project-local instructions, README,
+docs indexes, runbooks, existing project-memory specifications, and the
+canonical stack inventory when present. It verifies facts against current
+manifests, config, run instructions, source entry points, and tests before
+writing or reporting them.
+
+If the collected facts already match the current documentation and canonical
+stack inventory, the agent reports that the project information is already
+current and does not rewrite files. If only part of the inventory changed, such
+as the purpose, visible functionality, common workflows, commands, or stack,
+update only the affected sections and leave current unchanged sections intact.
+Avoid broad reformatting, wording churn, and whole-file rewrites when a scoped
+section update is enough.
+
+Write new or updated project information in the configured project working
+environment languages from `gi язык` / `gi language`
+(`tools/project-memory/system-preferences.json`). Preserve the selected order:
+the first configured language is primary. If one language is configured, write
+only that language; if multiple languages are configured, write the primary
+language first and add one clear translation per additional configured language.
+Do not use commit-message or task-manager language preferences for this project
+documentation.
+
+If the overview is missing or stale, the agent creates or updates the canonical
+project documentation rather than storing the only description in chat or raw
+project memory. Prefer `README.md`, `docs/`, and `tools/AGENT_RUNBOOK.md` for
+the human-facing overview, visible functionality, commands, operations, and
+troubleshooting. Keep or update the technology stack in the canonical stack
+inventory, using `tools/project-memory/specs/technology-stack.md` unless local
+instructions name another single source of truth. If implementation-driving
+business rules, workflows, algorithms, or architecture contracts are discovered
+or changed, link to the relevant project-memory specs instead of turning the
+overview into the behavioral source of truth.
+
+The command must keep facts evidence-backed. Mark unknown purpose, users,
+features, commands, stack components, or runtime assumptions as gaps/TODOs with
+evidence paths or missing-source notes. Do not install dependencies, start
+services, rebuild indexes, call external APIs, read secrets, or inspect private
+paths outside the project root unless the user explicitly approves that scope.
 
 ### Собрать Стек Технологий Проекта
 

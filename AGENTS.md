@@ -91,8 +91,9 @@ Use the RAG startup flow and retrieve only task-relevant context.
 - Authoring reusable rules, configuration boundaries, code quality, stack
   inventory, and batch verification: `patterns/AGENTS_RUNTIME/04-content-and-authoring.md`
 - Windows shell and networking policy: `patterns/AGENTS_RUNTIME/05-windows-command-policy.md`
-- Token economy, verification command lookup, `gi refactor`, feature contracts,
-  and large-output handling: `patterns/AGENTS_RUNTIME/06-tool-usage-and-token-economy.md`
+- Token economy, verification command lookup, `gi info`, `gi stack`,
+  `gi refactor`, feature contracts, and large-output handling:
+  `patterns/AGENTS_RUNTIME/06-tool-usage-and-token-economy.md`
 - Startup, restore, project goal, bug evidence, PDF inspection, repository
   cleanup, filesystem boundaries, and first-message handling:
   `patterns/AGENTS_RUNTIME/07-startup-and-scope.md`

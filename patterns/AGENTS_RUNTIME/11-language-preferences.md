@@ -13,6 +13,13 @@
   final answers, clarifying questions, and user-facing explanations. Do not use
   it to rewrite existing task text, code, commands, logs, quoted text, or a
   response language the user explicitly requested for a specific message.
+- Apply the configured project working-environment language order to
+  agent-created or agent-updated project orientation documentation produced by
+  `gi info` / `ги инфо`, including purpose, visible functionality, common
+  workflows, and stack overview text. The first configured language is primary;
+  if multiple languages are configured, write the primary language first and add
+  one clear translation per additional configured language. Do not use
+  commit-message or task-manager language preferences for this documentation.
 - Apply the configured task language order to agent-created task titles, task
   descriptions, and task-manager updates.
 - For task titles, descriptions, and task-manager updates, treat the first
