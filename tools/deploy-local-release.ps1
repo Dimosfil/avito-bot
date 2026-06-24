@@ -12,6 +12,7 @@ $ReleasePath = Join-Path $Root $ReleaseDir
 $StagingPath = "$ReleasePath.staging"
 $PreviousPidPath = Join-Path $ReleasePath "uvicorn.pid"
 $ProdUrl = "http://127.0.0.1:$Port"
+$BackupPath = $null
 
 function Assert-PathUnderRoot {
     param([string]$Path)
@@ -79,13 +80,35 @@ function Copy-ReleaseFiles {
     Copy-Item -LiteralPath (Join-Path $Root "README.md") -Destination $StagingPath
     Copy-Item -LiteralPath (Join-Path $Root ".env.example") -Destination $StagingPath
 
+    $releaseEnvPath = if ($BackupPath) { Join-Path $BackupPath ".env" } else { "" }
     $envPath = Join-Path $Root ".env"
-    if (Test-Path -LiteralPath $envPath) {
+    if ($releaseEnvPath -and (Test-Path -LiteralPath $releaseEnvPath)) {
+        Copy-Item -LiteralPath $releaseEnvPath -Destination $StagingPath
+        Write-Host "Preserved production .env from previous release without printing secrets."
+    } elseif (Test-Path -LiteralPath $envPath) {
         Copy-Item -LiteralPath $envPath -Destination $StagingPath
-        Write-Host "Copied local .env into release without printing secrets."
+        Write-Host "Copied root .env into release without printing secrets because no previous production .env exists."
     } else {
         Write-Warning "No root .env found. Release will rely on user/system environment variables."
     }
+}
+
+function Backup-PreviousRelease {
+    if (-not (Test-Path -LiteralPath $ReleasePath)) {
+        return
+    }
+
+    $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $candidate = "$ReleasePath.backup-$timestamp"
+    $suffix = 0
+    while (Test-Path -LiteralPath $candidate) {
+        $suffix += 1
+        $candidate = "$ReleasePath.backup-$timestamp-$suffix"
+    }
+    Assert-PathUnderRoot $candidate
+    Move-Item -LiteralPath $ReleasePath -Destination $candidate
+    $script:BackupPath = $candidate
+    Write-Host "Backed up previous release to $candidate"
 }
 
 function Start-Release {
@@ -154,9 +177,7 @@ try {
         Remove-Item -LiteralPath $StagingPath -Recurse -Force
     }
 
-    if (Test-Path -LiteralPath $ReleasePath) {
-        Remove-Item -LiteralPath $ReleasePath -Recurse -Force
-    }
+    Backup-PreviousRelease
 
     Copy-ReleaseFiles
 
@@ -181,6 +202,9 @@ try {
     }
 
     Write-Host "Local release deploy complete: $ReleasePath"
+    if ($BackupPath) {
+        Write-Host "Previous release backup: $BackupPath"
+    }
 } finally {
     Pop-Location
 }

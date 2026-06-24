@@ -133,11 +133,11 @@
             <table class="stats-table">
               <thead>
                 <tr>
-                  <th>Дата</th>
-                  <th>Объявление</th>
-                  <th>Просмотры</th>
-                  <th>Контакты</th>
-                  <th>Избранное</th>
+                  <th data-stats-sort="date"><button class="stats-sort-button" type="button">Дата</button></th>
+                  <th data-stats-sort="title"><button class="stats-sort-button" type="button">Объявление</button></th>
+                  <th data-stats-sort="uniqViews"><button class="stats-sort-button" type="button">Просмотры</button></th>
+                  <th data-stats-sort="uniqContacts"><button class="stats-sort-button" type="button">Контакты</button></th>
+                  <th data-stats-sort="uniqFavorites"><button class="stats-sort-button" type="button">Избранное</button></th>
                 </tr>
               </thead>
               <tbody id="statsTableBody"></tbody>
@@ -148,6 +148,6 @@
     </main>
 
     <script src="/static/bot-rules.js"></script>
-    <script src="/static/app.js?v=20260624-stats-clients"></script>
+    <script src="/static/app.js?v=20260624-stats-sort"></script>
   </body>
 </html>

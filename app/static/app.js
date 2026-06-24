@@ -35,6 +35,7 @@ const statsFavoritesInput = document.querySelector("#statsFavoritesInput");
 const statsItemList = document.querySelector("#statsItemList");
 const statsStatusLine = document.querySelector("#statsStatusLine");
 const statsSummary = document.querySelector("#statsSummary");
+const statsTableHead = document.querySelector(".stats-table thead");
 const statsTableBody = document.querySelector("#statsTableBody");
 
 let activeChatId = null;
@@ -60,7 +61,11 @@ const openStatsRowKeys = new Set();
 const POLLING_INTERVAL_MS = 3000;
 const MESSAGE_SCROLL_BOTTOM_THRESHOLD = 80;
 const QUALIFIED_BUYING_CHAT_IDS_KEY = "avito-bot-qualified-buying-chat-ids";
+const STATS_SORT_KEY = "avito-bot-stats-sort";
+const STATS_SORT_FIELDS = new Set(["date", "title", "uniqViews", "uniqContacts", "uniqFavorites"]);
+const STATS_NUMERIC_SORT_FIELDS = new Set(["uniqViews", "uniqContacts", "uniqFavorites"]);
 const qualifiedBuyingChatIds = loadQualifiedBuyingChatIds();
+let statsSort = loadStatsSort();
 const BUYING_CHAT_BUCKET = "Согласились купить";
 const OTHER_CHAT_BUCKET = "Остальные чаты";
 const SERVICE_PURCHASE_TRIGGER_PATTERNS = compileServicePurchaseTriggerPatterns();
@@ -84,6 +89,7 @@ managerTakeoverButton.addEventListener("click", syncChatBotControl);
 refreshStatsItemsButton.addEventListener("click", refreshStatsItems);
 loadStatsButton.addEventListener("click", loadItemStats);
 statsTableBody.addEventListener("click", handleStatsTableClick);
+statsTableHead.addEventListener("click", handleStatsHeaderClick);
 
 initialize();
 
@@ -717,10 +723,8 @@ function renderItemStats(data) {
     return;
   }
 
-  rows.sort((left, right) => {
-    const dateCompare = String(left.date).localeCompare(String(right.date));
-    return dateCompare || String(left.itemId).localeCompare(String(right.itemId));
-  });
+  sortStatsRows(rows);
+  updateStatsSortHeaders();
 
   rows.forEach((row) => {
     const rowKey = getStatsRowKey(row);
@@ -936,6 +940,19 @@ function handleStatsTableClick(event) {
   renderItemStats({ items: normalizeStatsRowsFromTable() });
 }
 
+function handleStatsHeaderClick(event) {
+  const header = event.target.closest("[data-stats-sort]");
+  if (!header || !statsTableHead.contains(header)) return;
+  const field = header.dataset.statsSort || "";
+  if (!STATS_SORT_FIELDS.has(field)) return;
+  statsSort = {
+    field,
+    direction: statsSort.field === field && statsSort.direction === "asc" ? "desc" : "asc",
+  };
+  saveStatsSort();
+  renderItemStats({ items: normalizeStatsRowsFromTable() });
+}
+
 function normalizeStatsRowsFromTable() {
   return [...statsTableBody.querySelectorAll(".stats-data-row")].map((row) => ({
     itemId: row.dataset.itemId || "",
@@ -948,12 +965,89 @@ function normalizeStatsRowsFromTable() {
   }));
 }
 
+function sortStatsRows(rows) {
+  const direction = statsSort.direction === "asc" ? 1 : -1;
+  rows.sort((left, right) => {
+    const missing = compareStatsMissingValues(left, right, statsSort.field);
+    if (missing) return missing;
+    const primary = compareStatsRows(left, right, statsSort.field);
+    if (primary) return primary * direction;
+    return compareStatsRows(left, right, "date") || compareStatsRows(left, right, "title") || compareStatsRows(left, right, "itemId");
+  });
+}
+
+function compareStatsMissingValues(left, right, field) {
+  if (STATS_NUMERIC_SORT_FIELDS.has(field)) return 0;
+  const leftMissing = !String(left[field] || "");
+  const rightMissing = !String(right[field] || "");
+  if (leftMissing === rightMissing) return 0;
+  return leftMissing ? 1 : -1;
+}
+
+function compareStatsRows(left, right, field) {
+  if (STATS_NUMERIC_SORT_FIELDS.has(field)) {
+    return compareStatsNumbers(left[field], right[field]);
+  }
+  if (field === "date") {
+    return compareStatsDates(left.date, right.date);
+  }
+  return compareStatsText(left[field], right[field]);
+}
+
+function compareStatsNumbers(left, right) {
+  const leftNumber = Number(left) || 0;
+  const rightNumber = Number(right) || 0;
+  return leftNumber - rightNumber;
+}
+
+function compareStatsDates(left, right) {
+  const leftText = String(left || "");
+  const rightText = String(right || "");
+  if (!leftText && !rightText) return 0;
+  if (!leftText) return 1;
+  if (!rightText) return -1;
+  return leftText.localeCompare(rightText);
+}
+
+function compareStatsText(left, right) {
+  return String(left || "").localeCompare(String(right || ""), "ru", { numeric: true, sensitivity: "base" });
+}
+
+function updateStatsSortHeaders() {
+  statsTableHead.querySelectorAll("[data-stats-sort]").forEach((header) => {
+    const field = header.dataset.statsSort || "";
+    const button = header.querySelector(".stats-sort-button");
+    const active = field === statsSort.field;
+    header.setAttribute("aria-sort", active ? (statsSort.direction === "asc" ? "ascending" : "descending") : "none");
+    if (button) {
+      button.dataset.direction = active ? statsSort.direction : "";
+    }
+  });
+}
+
+function loadStatsSort() {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(STATS_SORT_KEY) || "{}");
+    if (STATS_SORT_FIELDS.has(saved.field) && ["asc", "desc"].includes(saved.direction)) {
+      return { field: saved.field, direction: saved.direction };
+    }
+  } catch {
+    // Ignore broken local sort preferences.
+  }
+  return { field: "date", direction: "desc" };
+}
+
+function saveStatsSort() {
+  window.localStorage.setItem(STATS_SORT_KEY, JSON.stringify(statsSort));
+}
+
 function getStatsRowKey(row) {
   return `${row.date || ""}::${row.itemId || ""}`;
 }
 
 function getStatsClientsForRow(row) {
   return currentChats.filter((chat) => {
+    if (!isStatsChatForRowDate(row, chat)) return false;
     const item = getChatItemContext(chat);
     const itemId = getItemId(item, chat);
     if (row.itemId && itemId && String(itemId) === String(row.itemId)) return true;
@@ -961,6 +1055,57 @@ function getStatsClientsForRow(row) {
     if (row.url && itemUrl && String(itemUrl) === String(row.url)) return true;
     return row.title && getItemTitle(item, chat) === row.title;
   });
+}
+
+function isStatsChatForRowDate(row, chat) {
+  if (!row.date) return true;
+  return getChatStatsDate(chat) === row.date;
+}
+
+function getChatStatsDate(chat) {
+  const candidates = [
+    chat.created,
+    chat.created_at,
+    chat.createdAt,
+    chat.last_message?.created,
+    chat.last_message?.created_at,
+    chat.last_message?.createdAt,
+    chat.updated,
+    chat.updated_at,
+    chat.updatedAt,
+  ];
+  return candidates.map(normalizeStatsDateValue).find(Boolean) || "";
+}
+
+function normalizeStatsDateValue(value) {
+  if (!value) return "";
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+    const dateOnly = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (dateOnly) return dateOnly[1];
+    if (/^\d+$/.test(trimmed)) return normalizeStatsTimestamp(Number(trimmed));
+    const parsed = new Date(trimmed);
+    return Number.isNaN(parsed.getTime()) ? "" : formatLocalDateInput(parsed);
+  }
+  if (typeof value === "number") {
+    return normalizeStatsTimestamp(value);
+  }
+  return "";
+}
+
+function normalizeStatsTimestamp(value) {
+  if (!Number.isFinite(value) || value <= 0) return "";
+  const milliseconds = value < 1000000000000 ? value * 1000 : value;
+  return formatLocalDateInput(new Date(milliseconds));
+}
+
+function formatLocalDateInput(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function formatMetric(value) {

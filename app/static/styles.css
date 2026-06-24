@@ -740,6 +740,43 @@ input:disabled {
   text-transform: uppercase;
 }
 
+.stats-sort-button {
+  display: inline-grid;
+  grid-template-columns: minmax(0, auto) 10px;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 24px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.stats-sort-button::after {
+  content: "";
+  width: 10px;
+  color: var(--accent-strong);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.stats-sort-button[data-direction="asc"]::after {
+  content: "\25B2";
+}
+
+.stats-sort-button[data-direction="desc"]::after {
+  content: "\25BC";
+}
+
+.stats-sort-button:hover {
+  color: var(--accent-strong);
+}
+
 .stats-table td:nth-child(3),
 .stats-table td:nth-child(4),
 .stats-table td:nth-child(5) {
