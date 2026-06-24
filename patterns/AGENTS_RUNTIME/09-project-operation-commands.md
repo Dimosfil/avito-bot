@@ -1,5 +1,30 @@
 ## Project Operation Commands
 
+- Treat `gi prod`, `gi production`, `gi прод`, and `ги прод` as requests to
+  publish the current development version of an online service into its
+  documented production service folder. Use this only for services that run
+  continuously against real remote APIs, webhooks, chats, marketplaces,
+  payment providers, or other live external systems. Normal development,
+  refactoring, tests, formatting, cleanup, and `gi restart` operate on the
+  development checkout/service and must not edit, stop, reset, or test against
+  the production service folder unless the user explicitly invokes the
+  production command or local instructions define a stricter production
+  workflow. Before `gi prod`, read project-local run/deploy instructions,
+  service contracts, production folder config, secret-handling rules, ignore
+  rules, and verification requirements. The production folder is a live runtime
+  target, not the editable source of truth: never copy production secrets,
+  databases, logs, caches, user data, or remote API state back into development.
+  Build or prepare the documented artifact from the development checkout,
+  exclude dev caches and generated noise, sync only approved source/build files
+  into the production folder, preserve production-local config and secrets, and
+  use an atomic or backup/rollback-friendly handoff when local tooling supports
+  it. If the production folder, include/exclude rules, restart/switchover
+  command, health check, or rollback path is undocumented, ask one short
+  clarification question instead of guessing. After publishing, verify the
+  production service with the documented health signal or harmless remote-API
+  check and report exactly what was synced, what production-local state was
+  preserved, whether the live service was restarted or left running, and any
+  unverified risk. Follow `patterns/PROJECT_DEV_PROD_SERVICES.md`.
 - Treat `gi ftp`, `ги фтп`, `gi ftp push`, `ги фтп пуш`, `gi upload ftp`,
   `gi deploy ftp`, and `gi залей на фтп` as requests to upload the current
   project's configured build output to FTP, FTPS, or SFTP. Treat
@@ -28,23 +53,33 @@
   project-local run instructions. Before starting anything, identify the full
   app set from local run instructions, manifests, service records, desktop
   packaging metadata, or project memory; do not assume a successful web/API
-  start covers the project. If local instructions define a preferred
-  start/restart command that launches the full app set, use it. Otherwise
-  enumerate every documented app or runtime, such as desktop app, web/API app,
-  and background workers, then restart each running app and start each missing
-  app. Launch in the background so focus does not jump away from the user's
-  current window. After launch, wait briefly and verify the documented startup
-  success signal for each app: still-running expected processes, visible
-  desktop windows when applicable, health/discovery endpoints for web/API apps,
-  and relevant startup or crash logs when documented. The final report must
-  account for each app by name or role with started/restarted/skipped status and
-  verification evidence. Do not report reboot success from a PID alone, from a
-  web health check alone, or while any expected desktop app, web/API app, or
-  worker is unlaunched or unverified. If a documented desktop app lacks a
-  launch command or window verification signal, report that as a blocker or
-  partial failure instead of success. If any app exits, no expected window or
-  health signal appears, or a new startup traceback is present, report the
-  reboot as failed or partially unverified with the concrete evidence.
+  start covers the project. For local web/API services, resolve the service id,
+  port, URL, and neighboring endpoints through config-service before running a
+  start command; fixed ports in local runbooks or examples do not authorize a
+  fallback bind. If a config-service record is missing, use only the documented
+  config-service registration workflow from `08-config-service-and-task-manager`
+  to create or update it before startup, or stop with the exact missing
+  contract. If local instructions define a preferred start/restart command that
+  launches the full app set, use it only with the config-service-resolved local
+  runtime values for web/API apps. Otherwise enumerate every documented app or
+  runtime, such as desktop app, web/API app, and background workers, then
+  restart each running app and start each missing app. Launch in the background
+  so focus does not jump away from the user's current window. After launch, wait
+  briefly and verify the documented startup success signal for each app:
+  still-running expected processes, visible desktop windows when applicable,
+  health/discovery endpoints for web/API apps, and relevant startup or crash
+  logs when documented. The final report must account for each app by name or
+  role with started/restarted/skipped status and verification evidence. Do not
+  report reboot success from a PID alone, from a web health check alone, or
+  while any expected desktop app, web/API app, or worker is unlaunched or
+  unverified. If a documented desktop app lacks a launch command or window
+  verification signal, report that as a blocker or partial failure instead of
+  success. If any app exits, no expected window or health signal appears, or a
+  new startup traceback is present, report the reboot as failed or partially
+  unverified with the concrete evidence. Published hosting environments follow
+  their hosting or production deploy contract and are not restarted by local
+  `gi reboot` unless project-local production instructions explicitly define
+  that behavior.
 - Treat `gi first test`, `gi первый тест`, and `ги первый тест` as requests to
   verify the current application's first-launch experience by resetting only
   documented project-owned app cache, generated state, temporary first-run

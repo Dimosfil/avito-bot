@@ -88,6 +88,11 @@ First runnable slice:
 - The manager UI groups Avito chats by listing/ad context: each listing appears
   as a collapsible folder with its chat count, and chats for that listing are
   shown inside the folder so managers can review leads per advertised item.
+- The statistics view should connect Avito listing metrics back to live client
+  conversations. A metric row for a known listing must be expandable and show
+  the related client chats from the currently loaded chat list, including the
+  best available client label, chat id, Avito profile link when exposed by the
+  channel payload, and an in-app action that opens the conversation.
 - Chat rows in the manager UI must identify the client whenever the channel
   payload exposes a buyer/profile/user name. When Avito exposes a client name
   in the chat title, that chat title is the authoritative client label and must
@@ -212,6 +217,10 @@ Minimum MVP checks:
   client that it reads or sees the whole chat, and it must not repeatedly start
   follow-up replies with a greeting after the seller/assistant has already
   greeted the client.
+- Avito automatic replies are sent on behalf of the seller account `Оксана`.
+  The assistant must write in Russian from a feminine first-person voice, so
+  generated manager-style phrases agree with a female speaker. It must avoid
+  masculine self-references such as "я мог", "подобрал", or "уточнил".
 - When an unread message is accepted for automatic processing, the UI must make
   that state visible before completion; after send or handoff, the UI must show
   the fixed estimate/result instead of leaving the manager guessing.

@@ -242,6 +242,9 @@ async def avito_process_unread(limit: int = 20) -> dict[str, Any]:
 @app.post("/api/bot/autoreply/start")
 async def bot_autoreply_start() -> dict[str, Any]:
     global bot_worker_enabled, bot_worker_task
+    settings = get_settings()
+    if not settings.has_avito_credentials:
+        raise HTTPException(status_code=400, detail="AVITO_CLIENT_ID and AVITO_CLIENT_SECRET are required")
     bot_worker_enabled = True
     bot_activity.update(
         {

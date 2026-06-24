@@ -53,6 +53,23 @@ uv run pytest
 uv run python -m compileall app tests
 ```
 
+## Local Release Runtime
+
+Development happens in the project source tree. The local production runtime is
+the ignored `.release/` folder in the same project directory. Deploy to it only
+after the dev checks pass:
+
+```powershell
+.\tools\deploy-local-release.ps1
+```
+
+The script runs tests, creates a clean release copy, syncs production
+dependencies, starts Uvicorn without `--reload`, and verifies health at:
+
+```text
+http://127.0.0.1:8010
+```
+
 MVP target:
 
 - accept incoming customer messages from supported channels or local test

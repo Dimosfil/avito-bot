@@ -247,6 +247,18 @@ or:
   During `gi обновить`, migrations that change RAG rules, indexers, chunking,
   embedding metadata, or retrieval adapters must leave affected rebuild state
   stale until the documented rebuild and status checks succeed.
+- Treat `gi prod`, `gi production`, `gi прод`, and `ги прод` as production
+  service publication requests only for online services connected to real
+  remote APIs. Normal development, refactors, tests, cleanup, formatting, and
+  `gi restart` use the development checkout/service and must not edit, reset,
+  stop, or test inside the production service folder. For `gi prod`, read the
+  project-local production contract, build or prepare the documented
+  development artifact, sync only approved files into the production folder,
+  preserve production-local secrets, config, databases, logs, caches, sessions,
+  webhook/API state, and service manager files, then restart/reload/switch over
+  and verify only through documented commands. If the production folder,
+  include/exclude rules, health check, or rollback path is missing, ask one
+  concise question instead of guessing.
 - Keep `gi` command responses scoped to the shared instruction-kit command. Do
   not resume an older product task after a `gi` command unless the user
   explicitly asks.

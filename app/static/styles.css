@@ -751,6 +751,115 @@ input:disabled {
   color: var(--accent-strong);
 }
 
+.stats-data-row.expandable {
+  cursor: default;
+}
+
+.stats-item-cell {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: start;
+  gap: 6px;
+}
+
+.stats-item-cell a,
+.stats-item-cell span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.stats-row-toggle,
+.stats-row-toggle-spacer {
+  width: 22px;
+  min-width: 22px;
+}
+
+.stats-row-toggle {
+  min-height: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 4px;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  line-height: 1;
+}
+
+.stats-row-toggle:hover {
+  background: var(--surface-muted);
+  color: var(--accent-strong);
+}
+
+.stats-clients-row td {
+  padding: 0;
+  background: #fbfcfd;
+}
+
+.stats-clients-panel {
+  margin: 0;
+  padding: 10px 12px 12px 44px;
+  border-bottom: 1px solid var(--line);
+}
+
+.stats-clients-title {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.stats-client-list {
+  display: grid;
+  gap: 8px;
+}
+
+.stats-client-card {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(160px, 1.4fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.stats-client-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.stats-client-meta {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stats-client-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.stats-client-chat-link {
+  min-height: 30px;
+  padding: 0 9px;
+}
+
+.stats-clients-empty {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 @media (max-width: 980px) {
   .topbar {
     align-items: flex-start;
@@ -776,6 +885,16 @@ input:disabled {
 
   .stats-summary {
     grid-template-columns: 1fr;
+  }
+
+  .stats-client-card {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .stats-client-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .conversation-panel .panel-header {

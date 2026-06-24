@@ -1,6 +1,6 @@
 # Technology Stack
 
-Last reviewed: 2026-06-23
+Last reviewed: 2026-06-24
 
 Canonical source: this file
 Linked from: README.md
@@ -26,7 +26,7 @@ stack facts, commands, runtime assumptions, and operational notes here.
 | Data/storage | In-memory webhook event list only | `app/main.py` | SQLite domain storage not implemented yet. |
 | Build/package | uv | `pyproject.toml`, `uv.lock` | `uv sync` creates `.venv`. |
 | Test/quality | pytest, compileall | `tests/`, `pyproject.toml` | Initial smoke tests exist. |
-| Deployment/runtime | Uvicorn local dev server | README.md, `tools/AGENT_RUNBOOK.md` | Production deployment not designed yet. |
+| Deployment/runtime | Uvicorn local dev server and local `.release/` runtime | README.md, `tools/AGENT_RUNBOOK.md`, `tools/deploy-local-release.ps1` | Local production deploy copies tested source into ignored `.release/` and runs without `--reload`. |
 
 ## Commands
 
@@ -36,6 +36,7 @@ stack facts, commands, runtime assumptions, and operational notes here.
 | Run | `uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload` | README.md |
 | Test | `uv run pytest` | README.md |
 | Compile check | `uv run python -m compileall app tests` | README.md |
+| Local release deploy | `.\tools\deploy-local-release.ps1` | README.md, `tools/AGENT_RUNBOOK.md` |
 
 ## External Services
 
@@ -49,4 +50,6 @@ stack facts, commands, runtime assumptions, and operational notes here.
 - AI provider boundary is not implemented.
 - Final manager handoff UI is not implemented.
 - Public HTTPS webhook hosting is not configured.
+- External production hosting is not configured; current production runtime is
+  the project-local `.release/` folder.
 - Real Avito Messenger permission must be verified with credentials.

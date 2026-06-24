@@ -45,6 +45,17 @@ def test_build_prompt_forbids_unlisted_timeline_ranges() -> None:
     assert "timing depends on scope" in prompt[0].content
 
 
+def test_build_prompt_uses_oksana_feminine_voice() -> None:
+    chat = {"context": {"value": {"title": "Test service"}}}
+    messages = [{"direction": "in", "content": {"text": "Нужен чат бот"}}]
+
+    prompt = build_prompt(chat, messages)
+
+    assert "The seller account is Oksana" in prompt[0].content
+    assert "first person feminine form" in prompt[0].content
+    assert "Never use masculine self-references" in prompt[0].content
+
+
 def test_build_prompt_skips_repeated_greeting_after_seller_greeted() -> None:
     chat = {"context": {"value": {"title": "Test service"}}}
     messages = [

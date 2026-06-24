@@ -52,7 +52,11 @@
   paths in source or shared instructions; when paths are accepted from config,
   resolve and validate them as absolute paths at the application boundary. When
   applying this rule to existing projects, audit and refactor relevant
-  hard-coded values instead of only adding the rule text. Follow
+  hard-coded values instead of only adding the rule text. If a shortcut, legacy
+  compatibility case, or test expectation would require violating this boundary,
+  first implement the compliant config/resource/adapter path; ask only when the
+  source of truth or temporary compatibility layer is genuinely undocumented.
+  Follow
   `patterns/CONFIGURATION_BOUNDARIES.md`.
 - Build applications with clear architecture and code-quality boundaries. Apply
   OOP, SOLID, DRY, clean-code, maintainability, and extensibility principles

@@ -4,6 +4,9 @@ const chatView = document.querySelector("#chatView");
 const statsView = document.querySelector("#statsView");
 const chatTabButton = document.querySelector("#chatTabButton");
 const statsTabButton = document.querySelector("#statsTabButton");
+const tokenButton = document.querySelector("#tokenButton");
+const accountButton = document.querySelector("#accountButton");
+const chatsButton = document.querySelector("#chatsButton");
 const chatList = document.querySelector("#chatList");
 const messageList = document.querySelector("#messageList");
 const conversationTitle = document.querySelector("#conversationTitle");
@@ -40,6 +43,7 @@ let activeMessagesResponse = null;
 let activeMessagesFingerprint = "";
 let activeChatRequestId = 0;
 let loadingChatId = null;
+let avitoCredentialsReady = false;
 let automationBusy = false;
 let pollingTimer = null;
 let currentChats = [];
@@ -48,10 +52,13 @@ let currentStatsItems = [];
 const chatBotControlByChatId = new Map();
 const pendingChatBotControlByChatId = new Map();
 let chatFoldersInitialized = false;
+let lastAutoOpenedActiveChatId = null;
 const openChatFolderKeys = new Set();
 const openChatBucketKeys = new Set();
+const openStatsRowKeys = new Set();
 
 const POLLING_INTERVAL_MS = 3000;
+const MESSAGE_SCROLL_BOTTOM_THRESHOLD = 80;
 const QUALIFIED_BUYING_CHAT_IDS_KEY = "avito-bot-qualified-buying-chat-ids";
 const qualifiedBuyingChatIds = loadQualifiedBuyingChatIds();
 const BUYING_CHAT_BUCKET = "Согласились купить";
@@ -59,9 +66,9 @@ const OTHER_CHAT_BUCKET = "Остальные чаты";
 const SERVICE_PURCHASE_TRIGGER_PATTERNS = compileServicePurchaseTriggerPatterns();
 
 document.querySelector("#refreshStatusButton").addEventListener("click", refreshStatus);
-document.querySelector("#tokenButton").addEventListener("click", checkToken);
-document.querySelector("#accountButton").addEventListener("click", loadAccount);
-document.querySelector("#chatsButton").addEventListener("click", loadChats);
+tokenButton.addEventListener("click", checkToken);
+accountButton.addEventListener("click", loadAccount);
+chatsButton.addEventListener("click", loadChats);
 chatTabButton.addEventListener("click", () => showView("chats"));
 statsTabButton.addEventListener("click", () => showView("stats"));
 processUnreadButton.addEventListener("click", () => processUnread({ show: true }));
@@ -76,6 +83,7 @@ autoProcessInput.addEventListener("change", syncServerAutoReply);
 managerTakeoverButton.addEventListener("click", syncChatBotControl);
 refreshStatsItemsButton.addEventListener("click", refreshStatsItems);
 loadStatsButton.addEventListener("click", loadItemStats);
+statsTableBody.addEventListener("click", handleStatsTableClick);
 
 initialize();
 
@@ -98,20 +106,24 @@ async function refreshStatus() {
   const data = await api("/api/config/status");
   showOutput(data);
   const ready = data.avito_client_id_configured && data.avito_client_secret_configured;
+  avitoCredentialsReady = ready;
   connectionLine.textContent = ready
     ? `Avito: ${data.avito_client_id_preview || "configured"} · DeepSeek: ${
         data.deepseek_api_key_configured ? data.deepseek_model : "not configured"
       }`
     : "Avito credentials are not configured";
   connectionLine.className = ready ? "" : "error";
+  updateAvitoControls(ready);
   return data;
 }
 
 async function checkToken() {
+  if (!ensureAvitoReady()) return;
   showOutput(await api("/api/avito/token-check", { method: "POST" }));
 }
 
 async function loadAccount() {
+  if (!ensureAvitoReady()) return;
   showOutput(await api("/api/avito/account"));
 }
 
@@ -120,6 +132,7 @@ async function pingAi() {
 }
 
 async function loadChats({ show = true } = {}) {
+  if (!ensureAvitoReady({ show })) return;
   const params = new URLSearchParams({
     limit: "20",
     unread_only: unreadOnlyInput.checked ? "true" : "false",
@@ -136,7 +149,10 @@ async function loadChats({ show = true } = {}) {
   }
 }
 
-async function loadMessages(chatId, { resetDraft = true, show = true, chatSummary = null } = {}) {
+async function loadMessages(
+  chatId,
+  { resetDraft = true, show = true, chatSummary = null, scrollToLatest = false } = {},
+) {
   if (loadingChatId && String(loadingChatId) === String(chatId) && resetDraft === false && show === false) {
     return;
   }
@@ -178,8 +194,11 @@ async function loadMessages(chatId, { resetDraft = true, show = true, chatSummar
     const buyingStatusChanged = markBuyingChatFromMessages(chatId, messages);
     const nextMessagesFingerprint = getMessagesFingerprint(messages);
     if (!isBackgroundRefresh || nextMessagesFingerprint !== activeMessagesFingerprint) {
+      const keepAtLatest = scrollToLatest || isPrimaryLoad || isMessageListNearBottom();
       activeMessagesFingerprint = nextMessagesFingerprint;
-      renderMessages(messages);
+      renderMessages(messages, { scrollToLatest: keepAtLatest });
+    } else if (scrollToLatest) {
+      scrollMessageListToBottom();
     }
     if (!isBackgroundRefresh || buyingStatusChanged) {
       renderChats(currentChats);
@@ -203,16 +222,19 @@ async function loadMessages(chatId, { resetDraft = true, show = true, chatSummar
 async function sendMessage(event) {
   event.preventDefault();
   if (!activeChatId) return;
+  const chatId = activeChatId;
   const text = messageInput.value.trim();
   if (!text) return;
-  const data = await api(`/api/avito/chats/${encodeURIComponent(activeChatId)}/messages`, {
+  const data = await api(`/api/avito/chats/${encodeURIComponent(chatId)}/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
   });
   messageInput.value = "";
   showOutput(data);
-  await loadMessages(activeChatId);
+  if (String(activeChatId) === String(chatId)) {
+    await loadMessages(chatId, { resetDraft: false, show: false, scrollToLatest: true });
+  }
 }
 
 async function markRead() {
@@ -311,6 +333,7 @@ function setManagerTakeoverPressed(pressed) {
 }
 
 async function processUnread({ show = false } = {}) {
+  if (!ensureAvitoReady({ show })) return;
   if (automationBusy) return;
   automationBusy = true;
   processUnreadButton.disabled = true;
@@ -330,11 +353,12 @@ async function processUnread({ show = false } = {}) {
     if (show) showOutput({ error: error.message });
   } finally {
     automationBusy = false;
-    processUnreadButton.disabled = false;
+    processUnreadButton.disabled = !avitoCredentialsReady;
   }
 }
 
 async function refreshLiveView() {
+  if (!avitoCredentialsReady) return;
   await loadChats({ show: false });
   if (activeChatId) {
     await loadMessages(activeChatId, { resetDraft: false, show: false });
@@ -355,6 +379,10 @@ function startPolling() {
 }
 
 async function syncServerAutoReply() {
+  if (!ensureAvitoReady({ show: false })) {
+    autoProcessInput.checked = false;
+    return;
+  }
   const endpoint = autoProcessInput.checked ? "/api/bot/autoreply/start" : "/api/bot/autoreply/stop";
   const status = await api(endpoint, { method: "POST" });
   updateBotStatus(status);
@@ -440,6 +468,45 @@ function updateBotActivityFromProcessing(data) {
   }
 
   setBotActivity("Бот проверил входящие, отвечать не нужно");
+}
+
+function updateAvitoControls(ready) {
+  [tokenButton, accountButton, chatsButton, processUnreadButton, autoProcessInput].forEach((control) => {
+    control.disabled = !ready;
+  });
+
+  if (ready) return;
+
+  autoProcessInput.checked = false;
+  activeChatId = null;
+  activeChat = null;
+  activeMessagesResponse = null;
+  activeMessagesFingerprint = "";
+  currentChats = [];
+  currentChatsFingerprint = "";
+  lastAutoOpenedActiveChatId = null;
+  conversationTitle.textContent = "Conversation";
+  updateClientProfileLink(null);
+  messageInput.disabled = true;
+  sendButton.disabled = true;
+  readButton.disabled = true;
+  draftButton.disabled = true;
+  managerTakeoverButton.disabled = true;
+  hideDraft();
+  chatList.textContent = "Добавьте AVITO_CLIENT_ID и AVITO_CLIENT_SECRET в .env или переменные окружения, затем перезапустите release.";
+  messageList.textContent = "Чаты Avito недоступны без настроенных ключей.";
+  setAutomationLine("Auto reply off: Avito credentials required");
+  setBotActivity("Авито-бот не запущен: нужны AVITO_CLIENT_ID и AVITO_CLIENT_SECRET.", "error");
+}
+
+function ensureAvitoReady({ show = true } = {}) {
+  if (avitoCredentialsReady) return true;
+  const message =
+    "AVITO_CLIENT_ID and AVITO_CLIENT_SECRET are required. Add them to .env or user environment variables, then restart release.";
+  if (show) showOutput({ error: "Avito credentials are not configured", detail: message });
+  setAutomationLine("Avito credentials required");
+  setBotActivity("Авито-бот не может работать без AVITO_CLIENT_ID и AVITO_CLIENT_SECRET.", "error");
+  return false;
 }
 
 function formatSeconds(value) {
@@ -656,15 +723,31 @@ function renderItemStats(data) {
   });
 
   rows.forEach((row) => {
+    const rowKey = getStatsRowKey(row);
+    const clients = getStatsClientsForRow(row);
+    const isExpanded = openStatsRowKeys.has(rowKey);
     const tr = document.createElement("tr");
+    tr.className = clients.length ? "stats-data-row expandable" : "stats-data-row";
+    tr.dataset.rowKey = rowKey;
+    tr.dataset.itemId = row.itemId || "";
+    tr.dataset.title = row.title || "";
+    tr.dataset.url = row.url || "";
+    tr.dataset.date = row.date || "";
+    tr.dataset.uniqViews = String(row.uniqViews || 0);
+    tr.dataset.uniqContacts = String(row.uniqContacts || 0);
+    tr.dataset.uniqFavorites = String(row.uniqFavorites || 0);
+    tr.setAttribute("aria-expanded", String(isExpanded));
     tr.append(
       createTableCell(row.date || "-"),
-      createStatsItemCell(row),
+      createStatsItemCell(row, { clients, isExpanded }),
       createTableCell(formatMetric(row.uniqViews)),
       createTableCell(formatMetric(row.uniqContacts)),
       createTableCell(formatMetric(row.uniqFavorites)),
     );
     statsTableBody.append(tr);
+    if (isExpanded) {
+      statsTableBody.append(createStatsClientsRow(row, clients));
+    }
   });
 
   renderStatsSummary(rows);
@@ -730,19 +813,154 @@ function createTableCell(text) {
   return td;
 }
 
-function createStatsItemCell(row) {
+function createStatsItemCell(row, { clients = [], isExpanded = false } = {}) {
   const td = document.createElement("td");
+  const wrap = document.createElement("div");
+  wrap.className = "stats-item-cell";
+  if (clients.length) {
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "stats-row-toggle";
+    toggle.dataset.statsToggle = "true";
+    toggle.setAttribute("aria-label", isExpanded ? "Скрыть клиентов" : "Показать клиентов");
+    toggle.textContent = isExpanded ? "▾" : "▸";
+    wrap.append(toggle);
+  } else {
+    const spacer = document.createElement("span");
+    spacer.className = "stats-row-toggle-spacer";
+    wrap.append(spacer);
+  }
   if (row.url) {
     const link = document.createElement("a");
     link.href = row.url;
     link.target = "_blank";
     link.rel = "noreferrer";
     link.textContent = row.title;
-    td.append(link);
+    wrap.append(link);
   } else {
-    td.textContent = row.title;
+    const title = document.createElement("span");
+    title.textContent = row.title;
+    wrap.append(title);
   }
+  td.append(wrap);
   return td;
+}
+
+function createStatsClientsRow(row, clients) {
+  const tr = document.createElement("tr");
+  tr.className = "stats-clients-row";
+  const td = document.createElement("td");
+  td.colSpan = 5;
+
+  const panel = document.createElement("div");
+  panel.className = "stats-clients-panel";
+  const title = document.createElement("div");
+  title.className = "stats-clients-title";
+  title.textContent = clients.length ? `Клиенты по объявлению: ${clients.length}` : "Клиентов по объявлению пока нет";
+  panel.append(title);
+
+  if (!clients.length) {
+    const empty = document.createElement("div");
+    empty.className = "stats-clients-empty";
+    empty.textContent = "Загрузите чаты или проверьте, что у объявления есть переписки.";
+    panel.append(empty);
+  } else {
+    const list = document.createElement("div");
+    list.className = "stats-client-list";
+    clients.forEach((chat) => list.append(createStatsClientLink(chat)));
+    panel.append(list);
+  }
+
+  td.append(panel);
+  tr.append(td);
+  tr.dataset.parentRowKey = getStatsRowKey(row);
+  return tr;
+}
+
+function createStatsClientLink(chat) {
+  const card = document.createElement("div");
+  card.className = "stats-client-card";
+
+  const name = document.createElement("div");
+  name.className = "stats-client-name";
+  name.textContent = getChatDisplayTitle(chat);
+
+  const meta = document.createElement("div");
+  meta.className = "stats-client-meta";
+  meta.textContent = getChatMeta(chat);
+
+  const actions = document.createElement("div");
+  actions.className = "stats-client-actions";
+  const profileUrl = getBuyerProfileUrl(chat);
+  if (profileUrl) {
+    const profile = document.createElement("a");
+    profile.href = profileUrl;
+    profile.target = "_blank";
+    profile.rel = "noreferrer";
+    profile.textContent = "Профиль клиента";
+    actions.append(profile);
+  }
+  if (chat.id) {
+    const openChat = document.createElement("button");
+    openChat.type = "button";
+    openChat.className = "stats-client-chat-link";
+    openChat.dataset.chatId = String(chat.id);
+    openChat.textContent = "Открыть чат";
+    actions.append(openChat);
+  }
+
+  card.append(name, meta, actions);
+  return card;
+}
+
+function handleStatsTableClick(event) {
+  const chatButton = event.target.closest(".stats-client-chat-link");
+  if (chatButton && statsTableBody.contains(chatButton)) {
+    const chatId = chatButton.dataset.chatId;
+    const chat = findCurrentChat(chatId);
+    showView("chats");
+    if (chatId) loadMessages(chatId, { chatSummary: chat });
+    return;
+  }
+
+  const toggle = event.target.closest("[data-stats-toggle]");
+  if (!toggle || !statsTableBody.contains(toggle)) return;
+  const row = toggle.closest("tr");
+  const rowKey = row?.dataset.rowKey;
+  if (!rowKey) return;
+  if (openStatsRowKeys.has(rowKey)) {
+    openStatsRowKeys.delete(rowKey);
+  } else {
+    openStatsRowKeys.add(rowKey);
+  }
+  renderItemStats({ items: normalizeStatsRowsFromTable() });
+}
+
+function normalizeStatsRowsFromTable() {
+  return [...statsTableBody.querySelectorAll(".stats-data-row")].map((row) => ({
+    itemId: row.dataset.itemId || "",
+    title: row.dataset.title || "",
+    url: row.dataset.url || "",
+    date: row.dataset.date || "",
+    uniqViews: Number(row.dataset.uniqViews || 0),
+    uniqContacts: Number(row.dataset.uniqContacts || 0),
+    uniqFavorites: Number(row.dataset.uniqFavorites || 0),
+  }));
+}
+
+function getStatsRowKey(row) {
+  return `${row.date || ""}::${row.itemId || ""}`;
+}
+
+function getStatsClientsForRow(row) {
+  return currentChats.filter((chat) => {
+    const item = getChatItemContext(chat);
+    const itemId = getItemId(item, chat);
+    if (row.itemId && itemId && String(itemId) === String(row.itemId)) return true;
+    const itemUrl = getItemUrl(item, chat);
+    if (row.url && itemUrl && String(itemUrl) === String(row.url)) return true;
+    return row.title && getItemTitle(item, chat) === row.title;
+  });
 }
 
 function formatMetric(value) {
@@ -1061,13 +1279,15 @@ function syncOpenChatFolders(groups) {
     if (!knownBucketKeys.has(key)) openChatBucketKeys.delete(key);
   });
 
-  const activeGroup = groups.find((group) => group.chats.some((chat) => String(chat.id) === String(activeChatId)));
-  if (activeGroup) {
+  const activeChatKey = activeChatId ? String(activeChatId) : "";
+  const activeGroup = groups.find((group) => group.chats.some((chat) => String(chat.id) === activeChatKey));
+  if (activeGroup && activeChatKey && activeChatKey !== lastAutoOpenedActiveChatId) {
     openChatFolderKeys.add(activeGroup.key);
-    const activeBucket = isBuyingChat(activeGroup.chats.find((chat) => String(chat.id) === String(activeChatId)))
+    const activeBucket = isBuyingChat(activeGroup.chats.find((chat) => String(chat.id) === activeChatKey))
       ? "buying"
       : "other";
     openChatBucketKeys.add(getChatBucketKey(activeGroup.key, activeBucket));
+    lastAutoOpenedActiveChatId = activeChatKey;
   }
 
   if (!chatFoldersInitialized) {
@@ -1320,10 +1540,11 @@ function getChatSellerId(chat) {
   return item.user_id || chat.seller_id || chat.owner_id || chat.account_id || "";
 }
 
-function renderMessages(messages) {
+function renderMessages(messages, { scrollToLatest = false } = {}) {
   messageList.innerHTML = "";
   if (!messages.length) {
     messageList.textContent = "No messages";
+    if (scrollToLatest) scrollMessageListToBottom();
     return;
   }
   const orderedMessages = orderMessages(messages);
@@ -1364,6 +1585,17 @@ function renderMessages(messages) {
     if (index === orderedMessages.length - 1) {
       appendTimelineEdge("Последнее сообщение");
     }
+  });
+  if (scrollToLatest) scrollMessageListToBottom();
+}
+
+function isMessageListNearBottom() {
+  return messageList.scrollHeight - messageList.clientHeight - messageList.scrollTop <= MESSAGE_SCROLL_BOTTOM_THRESHOLD;
+}
+
+function scrollMessageListToBottom() {
+  window.requestAnimationFrame(() => {
+    messageList.scrollTop = messageList.scrollHeight;
   });
 }
 

@@ -14,6 +14,22 @@ uv sync
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
+## Local Release
+
+The local production runtime is `.release/` inside the project root. Deploy only
+through the guarded script so the source/dev tree is tested before the release
+copy is replaced:
+
+```powershell
+.\tools\deploy-local-release.ps1
+```
+
+Default release URL:
+
+```text
+http://127.0.0.1:8010
+```
+
 ## Test
 
 ```powershell

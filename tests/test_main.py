@@ -106,6 +106,17 @@ def test_item_stats_endpoint_rejects_reversed_dates() -> None:
     assert response.json()["detail"] == "date_to must be greater than or equal to date_from"
 
 
+def test_autoreply_start_requires_avito_credentials(monkeypatch) -> None:
+    monkeypatch.delenv("AVITO_CLIENT_ID", raising=False)
+    monkeypatch.delenv("AVITO_CLIENT_SECRET", raising=False)
+    client = TestClient(app)
+
+    response = client.post("/api/bot/autoreply/start")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "AVITO_CLIENT_ID and AVITO_CLIENT_SECRET are required"
+
+
 def test_process_unread_sends_ai_reply(monkeypatch) -> None:
     sent_messages: list[tuple[str, str]] = []
     read_chats: list[str] = []

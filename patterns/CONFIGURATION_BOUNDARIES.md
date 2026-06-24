@@ -21,8 +21,13 @@ variables, service discovery, or deployment metadata.
   location for the stack.
 - Keep secrets out of committed config. Commit only redacted examples, secret
   reference names, or environment variable names.
-- Use service identifiers and config-service records for local HTTP services
-  instead of fixed ports, URLs, dashboard links, or stale task-manager records.
+- Use service identifiers and config-service records for local development
+  HTTP services instead of fixed ports, URLs, dashboard links, runbook examples,
+  or stale task-manager records. A local dev port or URL is valid only after it
+  is resolved from, assigned by, or written through the documented
+  config-service contract. Deployed hosting environments follow the hosting or
+  deploy contract for that target instead of the local config-service contract,
+  unless project-local production instructions explicitly say otherwise.
 - Avoid machine-specific absolute paths in source, shared instructions, and
   committed examples unless the file is explicitly a local-only example.
 - When a configured value is a path, resolve it to an absolute path at startup
@@ -38,6 +43,13 @@ variables, service discovery, or deployment metadata.
   adapter modules, provider-swappable LLM adapters, or curated data assets.
   Application code may load, validate, compose, and apply them, but should not
   grow ad hoc per-query dictionaries inside request handlers or UI glue.
+- If a quick fix, legacy compatibility path, test expectation, or observed
+  sample would require hard-coding changeable behavior that this rule sends to
+  config, resources, adapters, or project-local memory, do not silently add the
+  hard-code. First implement the compliant boundary. Ask one concise
+  clarification question only when the correct source of truth, config location,
+  or temporary compatibility layer is not documented; name the boundary conflict
+  and the exact scoped exception or config choice needed.
 - Keep internal constants in code only when they are true invariants of the
   algorithm or protocol and are not expected to differ by deployment, user,
   environment, or operations.
