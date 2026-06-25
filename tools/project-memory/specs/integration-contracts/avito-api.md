@@ -60,10 +60,18 @@ Additional Messenger endpoints documented but not required for the first text
 MVP:
 
 - image upload and image message sending;
-- message deletion;
 - voice file retrieval;
 - blacklist operations;
 - subscription listing.
+
+## Known Messenger API Limitations
+
+Do not expose manager-side message deletion until an official public Messenger
+API endpoint is verified. A guessed
+`DELETE /messenger/v1/accounts/{user_id}/chats/{chat_id}/messages/{message_id}`
+contract returned `404` in production on 2026-06-25, so deletion must be treated
+as unsupported by the current integration even if Avito's web UI allows deleting
+some recently sent messages.
 
 ## Item Statistics
 

@@ -1811,6 +1811,71 @@ function getChatSellerId(chat) {
   return item.user_id || chat.seller_id || chat.owner_id || chat.account_id || "";
 }
 
+function appendMessageRoleLabel(container, message, label) {
+  const clientProfileUrl = getMessageClientProfileUrl(message);
+  if (!clientProfileUrl) {
+    container.textContent = label;
+    return;
+  }
+
+  const prefix = getMessageRolePrefix(label);
+  if (prefix) {
+    const prefixNode = document.createElement("span");
+    prefixNode.textContent = `${prefix}: `;
+    container.append(prefixNode);
+  }
+
+  const link = document.createElement("a");
+  link.href = clientProfileUrl;
+  link.target = "_blank";
+  link.rel = "noreferrer";
+  link.textContent = getMessageClientLinkText(message, label);
+  container.append(link);
+
+  const reference = getMessageAuthorReference(message);
+  if (reference) {
+    const suffix = document.createElement("span");
+    suffix.textContent = ` В· ${reference}`;
+    container.append(suffix);
+  }
+}
+
+function getMessageClientProfileUrl(message) {
+  if (message.direction !== "in") return "";
+  return (
+    message.author?.profile_url ||
+    message.author?.url ||
+    message.from?.profile_url ||
+    message.from?.url ||
+    message.sender?.profile_url ||
+    message.sender?.url ||
+    message.user?.profile_url ||
+    message.user?.url ||
+    message.public_user_profile?.url ||
+    getBuyerProfileUrl(activeChat || {})
+  );
+}
+
+function getMessageClientLinkText(message, fallbackLabel) {
+  return (
+    getMessageAuthorName(message) ||
+    getChatParticipantNameById(activeChat || {}, getMessageAuthorId(message)) ||
+    getBuyerName(activeChat || {}) ||
+    stripMessageRolePrefix(fallbackLabel) ||
+    "РџСЂРѕС„РёР»СЊ РєР»РёРµРЅС‚Р°"
+  );
+}
+
+function getMessageRolePrefix(label) {
+  const delimiterIndex = label.indexOf(":");
+  return delimiterIndex >= 0 ? label.slice(0, delimiterIndex) : "";
+}
+
+function stripMessageRolePrefix(label) {
+  const delimiterIndex = label.indexOf(":");
+  return (delimiterIndex >= 0 ? label.slice(delimiterIndex + 1) : label).split("В·")[0].trim();
+}
+
 function renderMessages(messages, { scrollToLatest = false } = {}) {
   messageList.innerHTML = "";
   if (!messages.length) {
@@ -1841,7 +1906,7 @@ function renderMessages(messages, { scrollToLatest = false } = {}) {
     meta.className = "message-meta";
     const roleLabel = document.createElement("span");
     roleLabel.className = "message-role";
-    roleLabel.textContent = role.label;
+    appendMessageRoleLabel(roleLabel, message, role.label);
 
     const time = document.createElement("span");
     time.className = "message-time";
@@ -1850,7 +1915,11 @@ function renderMessages(messages, { scrollToLatest = false } = {}) {
       ? `${formatMessageTime(createdAt, message.type)} - ${statusText}`
       : formatMessageTime(createdAt, message.type);
 
-    meta.append(roleLabel, time);
+    const metaActions = document.createElement("span");
+    metaActions.className = "message-meta-actions";
+    metaActions.append(time);
+
+    meta.append(roleLabel, metaActions);
 
     const content = document.createElement("div");
     content.className = "message-content";

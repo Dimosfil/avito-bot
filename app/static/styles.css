@@ -535,6 +535,13 @@ input:disabled {
   gap: 12px;
 }
 
+.message-meta-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
 .message-role {
   min-width: 0;
   overflow: hidden;
@@ -542,6 +549,15 @@ input:disabled {
   white-space: nowrap;
   font-weight: 700;
   color: var(--text);
+}
+
+.message-role a {
+  color: var(--accent-strong);
+  text-decoration: none;
+}
+
+.message-role a:hover {
+  text-decoration: underline;
 }
 
 .message-time {
