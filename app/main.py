@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
+from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -20,12 +22,16 @@ from app.deepseek_client import DeepSeekClient, DeepSeekConfigError
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = ROOT / "app" / "static"
-
-app = FastAPI(title="avito-bot", version="0.1.0")
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+RUNTIME_DIR = ROOT / ".codex-runtime"
+AUTOREPLY_PENDING_PATH = RUNTIME_DIR / "autoreply-pending.json"
+AUTOREPLY_STATE_PATH = RUNTIME_DIR / "autoreply-state.json"
+BOT_CONTROL_STATE_PATH = RUNTIME_DIR / "bot-control-state.json"
 
 webhook_events: list[dict[str, Any]] = []
 manager_takeover_chat_ids: set[str] = set()
+known_bot_control_chat_ids: set[str] = set()
+known_bot_control_item_keys: set[str] = set()
+bot_control_state_loaded = False
 process_unread_lock = asyncio.Lock()
 bot_worker_task: asyncio.Task[None] | None = None
 bot_worker_enabled = False
@@ -39,6 +45,36 @@ bot_activity: dict[str, Any] = {
     "last_result": None,
     "last_error": None,
 }
+
+
+async def _restore_bot_worker_state() -> None:
+    global bot_worker_enabled, bot_worker_task
+    if not _load_autoreply_enabled():
+        return
+    settings = get_settings()
+    if not settings.has_avito_credentials:
+        bot_activity["last_error"] = "AVITO_CLIENT_ID and AVITO_CLIENT_SECRET are required"
+        return
+    bot_worker_enabled = True
+    bot_activity.update(
+        {
+            "enabled": True,
+            "interval_seconds": bot_worker_interval_seconds,
+            "last_error": None,
+        }
+    )
+    if bot_worker_task is None or bot_worker_task.done():
+        bot_worker_task = asyncio.create_task(_bot_worker_loop())
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    await _restore_bot_worker_state()
+    yield
+
+
+app = FastAPI(title="avito-bot", version="0.1.0", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 class SendMessageRequest(BaseModel):
@@ -143,9 +179,11 @@ async def avito_account() -> dict[str, Any]:
 async def avito_chats(limit: int = 20, offset: int = 0, unread_only: bool = False) -> dict[str, Any]:
     client = AvitoClient(get_settings())
     try:
-        return await client.get_chats(limit=limit, offset=offset, unread_only=unread_only)
+        response = await client.get_chats(limit=limit, offset=offset, unread_only=unread_only)
     except Exception as exc:
         raise _to_http_error(exc) from exc
+    _apply_manual_default_for_new_items(list(response.get("chats", [])))
+    return response
 
 
 @app.get("/api/avito/chats/{chat_id}")
@@ -208,10 +246,13 @@ async def avito_chat_bot_control(chat_id: str) -> dict[str, Any]:
 
 @app.post("/api/avito/chats/{chat_id}/bot-control")
 async def avito_set_chat_bot_control(chat_id: str, request: ChatBotControlRequest) -> dict[str, Any]:
+    _ensure_bot_control_state_loaded()
+    known_bot_control_chat_ids.add(chat_id)
     if request.manager_takeover:
         manager_takeover_chat_ids.add(chat_id)
     else:
         manager_takeover_chat_ids.discard(chat_id)
+    _save_bot_control_state()
     return _chat_bot_control_response(chat_id)
 
 
@@ -253,6 +294,7 @@ async def bot_autoreply_start() -> dict[str, Any]:
             "last_error": None,
         }
     )
+    _save_autoreply_enabled(True)
     if bot_worker_task is None or bot_worker_task.done():
         bot_worker_task = asyncio.create_task(_bot_worker_loop())
     return _bot_activity_response()
@@ -263,6 +305,7 @@ async def bot_autoreply_stop() -> dict[str, Any]:
     global bot_worker_enabled
     bot_worker_enabled = False
     bot_activity["enabled"] = False
+    _save_autoreply_enabled(False)
     return _bot_activity_response()
 
 
@@ -276,13 +319,27 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
     avito = AvitoClient(settings)
     assistant = SalesAssistant(DeepSeekClient(settings))
     results: list[ProcessedUnreadChat] = []
+    pending = _load_autoreply_pending()
 
     try:
         chats_response = await avito.get_chats(limit=limit, unread_only=True)
     except Exception as exc:
         raise _to_http_error(exc) from exc
 
-    for chat in chats_response.get("chats", []):
+    chats = list(chats_response.get("chats", []))
+    seen_chat_ids = {str(chat.get("id") or "") for chat in chats}
+    for chat_id in list(pending):
+        if chat_id and chat_id not in seen_chat_ids:
+            try:
+                chat = await avito.get_chat(chat_id)
+                chat.setdefault("id", chat_id)
+                chats.append(chat)
+            except Exception:
+                chats.append({"id": chat_id})
+
+    _apply_manual_default_for_new_items(chats)
+
+    for chat in chats:
         chat_id = str(chat.get("id") or "")
         if not chat_id:
             results.append(ProcessedUnreadChat(chat_id="", status="skipped", error="missing chat id"))
@@ -294,21 +351,46 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
         try:
             messages = await avito.get_messages(chat_id, limit=30)
             latest_message = _latest_non_system_message(messages)
+            pending_item = pending.get(chat_id)
             if not latest_message or latest_message.get("direction") != "in":
-                results.append(ProcessedUnreadChat(chat_id=chat_id, status="skipped"))
+                status = "answered" if _has_outbound_after_message(messages, pending_item) else "skipped"
+                _clear_autoreply_pending(chat_id)
+                results.append(ProcessedUnreadChat(chat_id=chat_id, status=status))
                 continue
 
-            accepted_at = time.time()
-            estimate_seconds = _estimate_reply_seconds(latest_message)
+            received_message_id = str(latest_message.get("id") or "")
+            if pending_item and pending_item.get("message_id") == received_message_id:
+                accepted_at = float(pending_item.get("accepted_at") or time.time())
+                estimate_seconds = int(pending_item.get("estimate_seconds") or _estimate_reply_seconds(latest_message))
+            else:
+                accepted_at = time.time()
+                estimate_seconds = _estimate_reply_seconds(latest_message)
+                _save_autoreply_pending_item(
+                    chat_id,
+                    {
+                        "chat_id": chat_id,
+                        "message_id": received_message_id,
+                        "accepted_at": accepted_at,
+                        "estimate_seconds": estimate_seconds,
+                    },
+                )
+                pending[chat_id] = {
+                    "chat_id": chat_id,
+                    "message_id": received_message_id,
+                    "accepted_at": accepted_at,
+                    "estimate_seconds": estimate_seconds,
+                }
+                await avito.mark_chat_read(chat_id)
             draft = await assistant.draft_reply(chat, messages)
             if draft.handoff_required:
+                _clear_autoreply_pending(chat_id)
                 results.append(
                     ProcessedUnreadChat(
                         chat_id=chat_id,
                         status="handoff_required",
                         handoff_required=True,
                         handoff_reason=draft.handoff_reason,
-                        received_message_id=str(latest_message.get("id") or ""),
+                        received_message_id=received_message_id,
                         accepted_at=accepted_at,
                         estimate_seconds=estimate_seconds,
                         estimated_reply_at=accepted_at + estimate_seconds,
@@ -319,12 +401,12 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
 
             sent = await avito.send_text_message(chat_id, draft.text.strip())
             sent_at = time.time()
-            await avito.mark_chat_read(chat_id)
+            _clear_autoreply_pending(chat_id)
             results.append(
                 ProcessedUnreadChat(
                     chat_id=chat_id,
                     status="sent",
-                    received_message_id=str(latest_message.get("id") or ""),
+                    received_message_id=received_message_id,
                     accepted_at=accepted_at,
                     estimate_seconds=estimate_seconds,
                     estimated_reply_at=accepted_at + estimate_seconds,
@@ -384,6 +466,7 @@ def _bot_activity_response() -> dict[str, Any]:
 
 
 def _chat_bot_control_response(chat_id: str) -> dict[str, Any]:
+    _ensure_bot_control_state_loaded()
     manager_takeover = chat_id in manager_takeover_chat_ids
     return {
         "chat_id": chat_id,
@@ -402,6 +485,172 @@ async def avito_webhook(payload: dict[str, Any]) -> dict[str, object]:
 @app.get("/api/webhooks/avito/events")
 async def avito_webhook_events() -> dict[str, Any]:
     return {"events": webhook_events}
+
+
+def _load_autoreply_pending() -> dict[str, dict[str, Any]]:
+    if not AUTOREPLY_PENDING_PATH.exists():
+        return {}
+    try:
+        data = json.loads(AUTOREPLY_PENDING_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    pending: dict[str, dict[str, Any]] = {}
+    for chat_id, item in data.items():
+        if isinstance(chat_id, str) and isinstance(item, dict):
+            pending[chat_id] = item
+    return pending
+
+
+def _write_autoreply_pending(pending: dict[str, dict[str, Any]]) -> None:
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    temp_path = AUTOREPLY_PENDING_PATH.with_suffix(".json.tmp")
+    temp_path.write_text(json.dumps(pending, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp_path.replace(AUTOREPLY_PENDING_PATH)
+
+
+def _save_autoreply_pending_item(chat_id: str, item: dict[str, Any]) -> None:
+    pending = _load_autoreply_pending()
+    pending[chat_id] = item
+    _write_autoreply_pending(pending)
+
+
+def _clear_autoreply_pending(chat_id: str) -> None:
+    pending = _load_autoreply_pending()
+    if chat_id not in pending:
+        return
+    del pending[chat_id]
+    if pending:
+        _write_autoreply_pending(pending)
+    else:
+        AUTOREPLY_PENDING_PATH.unlink(missing_ok=True)
+
+
+def _load_autoreply_enabled() -> bool:
+    if not AUTOREPLY_STATE_PATH.exists():
+        return False
+    try:
+        data = json.loads(AUTOREPLY_STATE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return bool(isinstance(data, dict) and data.get("enabled") is True)
+
+
+def _save_autoreply_enabled(enabled: bool) -> None:
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    temp_path = AUTOREPLY_STATE_PATH.with_suffix(".json.tmp")
+    temp_path.write_text(json.dumps({"enabled": enabled}, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp_path.replace(AUTOREPLY_STATE_PATH)
+
+
+def _ensure_bot_control_state_loaded() -> None:
+    global bot_control_state_loaded
+    if bot_control_state_loaded:
+        return
+    bot_control_state_loaded = True
+    if not BOT_CONTROL_STATE_PATH.exists():
+        return
+    try:
+        data = json.loads(BOT_CONTROL_STATE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(data, dict):
+        return
+
+    known_chat_ids = data.get("known_chat_ids", [])
+    known_item_keys = data.get("known_item_keys", [])
+    takeover_chat_ids = data.get("manager_takeover_chat_ids", [])
+    if isinstance(known_chat_ids, list):
+        known_bot_control_chat_ids.update(str(chat_id) for chat_id in known_chat_ids if chat_id)
+    if isinstance(known_item_keys, list):
+        known_bot_control_item_keys.update(str(item_key) for item_key in known_item_keys if item_key)
+    if isinstance(takeover_chat_ids, list):
+        manager_takeover_chat_ids.update(str(chat_id) for chat_id in takeover_chat_ids if chat_id)
+
+
+def _save_bot_control_state() -> None:
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    temp_path = BOT_CONTROL_STATE_PATH.with_suffix(".json.tmp")
+    temp_path.write_text(
+        json.dumps(
+            {
+                "known_chat_ids": sorted(known_bot_control_chat_ids),
+                "known_item_keys": sorted(known_bot_control_item_keys),
+                "manager_takeover_chat_ids": sorted(manager_takeover_chat_ids),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    temp_path.replace(BOT_CONTROL_STATE_PATH)
+
+
+def _apply_manual_default_for_new_items(chats: list[dict[str, Any]]) -> None:
+    _ensure_bot_control_state_loaded()
+    chat_ids_by_item_key: dict[str, list[str]] = {}
+    for chat in chats:
+        chat_id = str(chat.get("id") or "")
+        item_key = _chat_item_key(chat)
+        if not chat_id or not item_key:
+            continue
+        chat_ids_by_item_key.setdefault(item_key, []).append(chat_id)
+
+    if not chat_ids_by_item_key:
+        return
+
+    changed = False
+    if not known_bot_control_item_keys and not BOT_CONTROL_STATE_PATH.exists():
+        known_bot_control_item_keys.update(chat_ids_by_item_key)
+        known_bot_control_chat_ids.update(
+            chat_id for chat_ids in chat_ids_by_item_key.values() for chat_id in chat_ids
+        )
+        changed = True
+    else:
+        for item_key, chat_ids in chat_ids_by_item_key.items():
+            is_new_item = item_key not in known_bot_control_item_keys
+            known_bot_control_item_keys.add(item_key)
+            for chat_id in chat_ids:
+                known_bot_control_chat_ids.add(chat_id)
+            if not is_new_item:
+                continue
+            manager_takeover_chat_ids.update(chat_ids)
+            changed = True
+
+    if changed:
+        _save_bot_control_state()
+
+
+def _chat_item_key(chat: dict[str, Any]) -> str:
+    item = _chat_item_context(chat)
+    value = (
+        item.get("id")
+        or item.get("item_id")
+        or item.get("avito_id")
+        or chat.get("item_id")
+        or chat.get("itemId")
+        or item.get("url")
+        or item.get("uri")
+        or item.get("link")
+        or item.get("external_url")
+    )
+    if value:
+        return str(value)
+    title = item.get("title") or chat.get("context", {}).get("title") or ""
+    price = item.get("price_string") or ""
+    fallback = f"{title}|{price}".strip("|")
+    return fallback or ""
+
+
+def _chat_item_context(chat: dict[str, Any]) -> dict[str, Any]:
+    context = chat.get("context")
+    if isinstance(context, dict) and isinstance(context.get("value"), dict):
+        return context["value"]
+    item = chat.get("item")
+    if isinstance(item, dict):
+        return item
+    return {}
 
 
 def _to_http_error(exc: Exception) -> HTTPException:
@@ -425,6 +674,23 @@ def _latest_non_system_message(messages_response: dict[str, Any]) -> dict[str, A
         if message.get("type") != "system":
             return message
     return None
+
+
+def _has_outbound_after_message(messages_response: dict[str, Any], pending_item: dict[str, Any] | None) -> bool:
+    if not pending_item:
+        return False
+    pending_message_id = str(pending_item.get("message_id") or "")
+    messages = [message for message in order_messages(list(messages_response.get("messages", []))) if message.get("type") != "system"]
+    if not pending_message_id:
+        return bool(messages and messages[-1].get("direction") == "out")
+
+    found_pending = False
+    for message in messages:
+        if found_pending and message.get("direction") == "out":
+            return True
+        if str(message.get("id") or "") == pending_message_id:
+            found_pending = True
+    return False
 
 
 def _estimate_reply_seconds(message: dict[str, Any]) -> int:

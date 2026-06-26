@@ -46,6 +46,7 @@ let activeChatRequestId = 0;
 let loadingChatId = null;
 let avitoCredentialsReady = false;
 let automationBusy = false;
+let groupBotControlBusy = false;
 let pollingTimer = null;
 let currentChats = [];
 let currentChatsFingerprint = "";
@@ -163,6 +164,7 @@ async function loadChats({ show = true } = {}) {
     renderChats(currentChats);
     refreshStatsItems();
   }
+  await syncVisibleChatBotControls(currentChats);
   restoreChatListScroll();
 }
 
@@ -295,6 +297,18 @@ async function loadChatBotControl(chatId, { show = false } = {}) {
   return data;
 }
 
+async function syncVisibleChatBotControls(chats) {
+  const chatIds = chats.map((chat) => String(chat.id || "")).filter(Boolean);
+  const missingChatIds = chatIds.filter((chatId) => !chatBotControlByChatId.has(chatId));
+  if (!missingChatIds.length) return;
+  await Promise.all(
+    missingChatIds.map((chatId) =>
+      loadChatBotControl(chatId, { show: false }).catch(() => null),
+    ),
+  );
+  renderChats(currentChats);
+}
+
 async function syncChatBotControl() {
   if (!activeChatId) return;
   const chatId = activeChatId;
@@ -326,6 +340,48 @@ async function syncChatBotControl() {
     }
   } finally {
     managerTakeoverButton.disabled = !activeChatId;
+  }
+}
+
+async function setChatsBotControl(chatIds, managerTakeover) {
+  const uniqueChatIds = [...new Set(chatIds.map((chatId) => String(chatId || "")).filter(Boolean))];
+  if (!uniqueChatIds.length || groupBotControlBusy) return;
+  groupBotControlBusy = true;
+  uniqueChatIds.forEach((chatId) => {
+    pendingChatBotControlByChatId.set(chatId, managerTakeover);
+    updateChatBotControl(
+      { chat_id: chatId, manager_takeover: managerTakeover, bot_enabled: !managerTakeover },
+      { source: "local" },
+    );
+  });
+  renderChats(currentChats);
+  try {
+    const results = await Promise.all(
+      uniqueChatIds.map((chatId) =>
+        api(`/api/avito/chats/${encodeURIComponent(chatId)}/bot-control`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ manager_takeover: managerTakeover }),
+          quiet: true,
+        }).then((data) => ({ chatId, data })),
+      ),
+    );
+    results.forEach(({ chatId, data }) => {
+      pendingChatBotControlByChatId.delete(chatId);
+      updateChatBotControl(data, { source: "server" });
+    });
+    showOutput({
+      manager_takeover: managerTakeover,
+      updated_count: results.length,
+      chat_ids: uniqueChatIds,
+    });
+  } catch (error) {
+    uniqueChatIds.forEach((chatId) => pendingChatBotControlByChatId.delete(chatId));
+    showOutput({ error: error.message });
+    await syncVisibleChatBotControls(currentChats);
+  } finally {
+    groupBotControlBusy = false;
+    renderChats(currentChats);
   }
 }
 
@@ -1299,6 +1355,9 @@ function renderChats(chats) {
     const folder = document.createElement("section");
     folder.className = "chat-folder";
 
+    const folderHeader = document.createElement("div");
+    folderHeader.className = "chat-folder-header";
+
     const folderButton = document.createElement("button");
     folderButton.type = "button";
     folderButton.className = "chat-folder-button";
@@ -1319,7 +1378,8 @@ function renderChats(chats) {
     count.textContent = String(group.chats.length);
 
     folderButton.append(icon, title, count);
-    folder.append(folderButton);
+    folderHeader.append(folderButton, createBotControlScopeButton(group.chats, "chat-folder-mode-button"));
+    folder.append(folderHeader);
 
     const nestedList = document.createElement("div");
     nestedList.className = "chat-folder-list";
@@ -1350,6 +1410,9 @@ function createChatBucket(groupKey, bucketKey, title, chats, { highlighted = fal
   const bucket = document.createElement("section");
   bucket.className = `chat-bucket ${highlighted ? "buying" : ""}`.trim();
 
+  const headerRow = document.createElement("div");
+  headerRow.className = "chat-bucket-header-row";
+
   const header = document.createElement("button");
   header.type = "button";
   header.className = "chat-bucket-header";
@@ -1370,7 +1433,8 @@ function createChatBucket(groupKey, bucketKey, title, chats, { highlighted = fal
   count.textContent = String(chats.length);
 
   header.append(icon, name, count);
-  bucket.append(header);
+  headerRow.append(header, createBotControlScopeButton(chats, "chat-bucket-mode-button"));
+  bucket.append(headerRow);
 
   const body = document.createElement("div");
   body.className = "chat-bucket-body";
@@ -1390,6 +1454,42 @@ function createChatBucket(groupKey, bucketKey, title, chats, { highlighted = fal
   });
   bucket.append(body);
   return bucket;
+}
+
+function createBotControlScopeButton(chats, className) {
+  const chatIds = chats.map((chat) => String(chat.id || "")).filter(Boolean);
+  const state = getBotControlScopeState(chatIds);
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `chat-control-toggle scope-control ${className}`;
+  button.disabled = !chatIds.length || groupBotControlBusy;
+  button.setAttribute("aria-pressed", String(state.allManual));
+  button.classList.toggle("active", state.allManual);
+  button.classList.toggle("partial", state.partialManual);
+  button.textContent = getBotControlScopeButtonText(state);
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setChatsBotControl(chatIds, !state.allManual);
+  });
+  return button;
+}
+
+function getBotControlScopeState(chatIds) {
+  const controls = chatIds.map((chatId) => getCachedChatBotControl(chatId));
+  const manualCount = controls.filter((control) => control.manager_takeover === true).length;
+  return {
+    total: controls.length,
+    manualCount,
+    allManual: Boolean(controls.length && manualCount === controls.length),
+    partialManual: manualCount > 0 && manualCount < controls.length,
+  };
+}
+
+function getBotControlScopeButtonText(state) {
+  if (!state.total) return "Ручной режим";
+  if (state.allManual) return "Ручной режим включен";
+  if (state.partialManual) return "Ручной режим частично";
+  return "Включить ручной режим";
 }
 
 function createChatButton(chat) {

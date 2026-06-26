@@ -224,6 +224,16 @@ Minimum MVP checks:
 - Avito unread auto-processing must send only when the latest non-system message
   is inbound and no handoff trigger is detected; handoff-trigger messages must
   not be auto-sent.
+- When Avito auto-processing marks an accepted inbound message read before the
+  AI reply is sent, it must persist a minimal pending auto-reply record so a
+  restart or transient AI failure can still retry the chat even if Avito no
+  longer returns it in `unread_only` results.
+- Before retrying a pending auto-reply, the worker must reread the conversation
+  and skip/clear the pending record if a manager or another sender has already
+  posted an outbound reply after the accepted client message.
+- If backend auto-reply was enabled before a local server restart, startup must
+  restore that enabled state and resume the worker when Avito credentials are
+  available.
 - The assistant must use the conversation history silently. It must not tell the
   client that it reads or sees the whole chat, and it must not repeatedly start
   follow-up replies with a greeting after the seller/assistant has already

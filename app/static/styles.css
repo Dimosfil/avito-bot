@@ -301,6 +301,13 @@ input:disabled {
   margin-bottom: 6px;
 }
 
+.chat-folder-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+
 .chat-folder-button {
   width: 100%;
   display: grid;
@@ -361,6 +368,14 @@ input:disabled {
   background: #f1fbf4;
 }
 
+.chat-bucket-header-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
 .chat-bucket-header {
   width: 100%;
   display: flex;
@@ -368,7 +383,6 @@ input:disabled {
   justify-content: space-between;
   gap: 8px;
   min-height: 26px;
-  margin-bottom: 4px;
   border: 0;
   background: transparent;
   color: var(--muted);
@@ -377,6 +391,21 @@ input:disabled {
   text-transform: uppercase;
   padding: 0;
   text-align: left;
+}
+
+.scope-control {
+  min-height: 26px;
+  max-width: 138px;
+  padding: 4px 8px;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  line-height: 1.15;
+}
+
+.scope-control.partial {
+  background: #fff8e6;
+  border-color: #e5b94f;
+  color: #815700;
 }
 
 .chat-bucket.buying .chat-bucket-header {
