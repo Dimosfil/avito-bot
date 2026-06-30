@@ -9,8 +9,13 @@ tools/project-memory/embedding-cache/
 tools/project-memory/semantic-corpus*.jsonl
 tools/summary/*.tmp
 .codex-runtime/*.json
+.codex-runtime/*.sqlite
+.codex-runtime/*.sqlite-*
+.codex-runtime/*.sqlite3
+.codex-runtime/*.sqlite3-*
 .codex-runtime/*.pid
 .codex-runtime/*.tmp
+.codex-runtime/backups/
 tools/deploy/ftp.local.json
 tools/deploy/prod.local.json
 *.log

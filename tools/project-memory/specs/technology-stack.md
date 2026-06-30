@@ -25,7 +25,7 @@ stack facts, commands, runtime assumptions, and operational notes here.
 | Backend/API | FastAPI | `app/main.py`, `pyproject.toml` | Serves API and static UI. |
 | Avito client | httpx | `app/avito_client.py`, `pyproject.toml` | Uses official Avito HTTP endpoints. |
 | AI provider clients | httpx | `app/deepseek_client.py`, `app/codex_app_server_client.py`, `app/ai_client.py`, `app/assistant.py`, `pyproject.toml` | DeepSeek is the primary provider for short sales-assistant drafts; Codex App Server is an optional OpenAI-compatible fallback. |
-| Data/storage | In-memory webhook event list only | `app/main.py` | SQLite domain storage not implemented yet. |
+| Data/storage | Runtime store with SQLite fallback and PostgreSQL support | `app/storage.py`, `app/main.py`, `.env.example` | Stores bot runtime state, Avito sync snapshots, manager actions, and backups. `DATABASE_URL` selects PostgreSQL; otherwise SQLite uses `SHARED_DIR` when available or `.codex-runtime/`. |
 | Build/package | uv | `pyproject.toml`, `uv.lock` | `uv sync` creates `.venv`. |
 | Test/quality | pytest, compileall | `tests/`, `pyproject.toml` | Initial smoke tests exist. |
 | Deployment/runtime | Uvicorn local dev server, local `.release/` runtime, and Docker Compose host runtime | README.md, `tools/AGENT_RUNBOOK.md`, `tools/deploy-local-release.ps1`, `Dockerfile`, `docker-compose.yml` | Local production deploy copies tested source into ignored `.release/` and runs without `--reload`; Docker runs the app in one container and bind-mounts `.codex-runtime/`. |
@@ -51,7 +51,8 @@ stack facts, commands, runtime assumptions, and operational notes here.
 
 ## Gaps
 
-- Persistent conversation storage is not implemented.
+- Full platform-neutral conversation domain storage is not complete; current
+  persistence stores runtime state and Avito sync snapshots.
 - Platform-neutral local/test channel adapter is not implemented.
 - Final persisted manager notification and handoff workflow is not implemented.
 - Public HTTPS webhook hosting is not configured.

@@ -21,6 +21,12 @@ class Settings:
     codex_app_server_base_url: str | None
     codex_app_server_api_key: str | None
     codex_app_server_model: str
+    database_url: str | None = None
+    avito_database_path: str | None = None
+    avito_backup_dir: str | None = None
+    shared_dir: str | None = None
+    backup_interval_seconds: int = 21600
+    backup_retention_count: int = 14
     avito_base_url: str = "https://api.avito.ru"
     deepseek_base_url: str = "https://api.deepseek.com"
 
@@ -37,6 +43,12 @@ class Settings:
             codex_app_server_base_url=_blank_to_none(os.getenv("CODEX_APP_SERVER_BASE_URL")),
             codex_app_server_api_key=_blank_to_none(os.getenv("CODEX_APP_SERVER_API_KEY")),
             codex_app_server_model=os.getenv("CODEX_APP_SERVER_MODEL", "codex").strip() or "codex",
+            database_url=_blank_to_none(os.getenv("DATABASE_URL")),
+            avito_database_path=_blank_to_none(os.getenv("AVITO_DATABASE_PATH")),
+            avito_backup_dir=_blank_to_none(os.getenv("AVITO_BACKUP_DIR")),
+            shared_dir=_blank_to_none(os.getenv("SHARED_DIR")),
+            backup_interval_seconds=_positive_int(os.getenv("AVITO_BACKUP_INTERVAL_SECONDS"), 21600),
+            backup_retention_count=_positive_int(os.getenv("AVITO_BACKUP_RETENTION_COUNT"), 14),
         )
 
     @property
@@ -55,6 +67,11 @@ class Settings:
             "deepseek_model": self.deepseek_model,
             "codex_app_server_configured": bool(self.codex_app_server_base_url),
             "codex_app_server_model": self.codex_app_server_model,
+            "database_url_configured": bool(self.database_url),
+            "shared_dir_configured": bool(self.shared_dir),
+            "backup_dir_configured": bool(self.avito_backup_dir),
+            "backup_interval_seconds": self.backup_interval_seconds,
+            "backup_retention_count": self.backup_retention_count,
         }
 
 
@@ -75,3 +92,13 @@ def _blank_to_none(value: str | None) -> str | None:
         return None
     value = value.strip()
     return value or None
+
+
+def _positive_int(value: str | None, default: int) -> int:
+    if value is None or not value.strip():
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        return default
+    return parsed if parsed > 0 else default

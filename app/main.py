@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -21,6 +21,7 @@ from app.codex_app_server_client import CodexAppServerClient, CodexAppServerConf
 from app.config import get_settings
 from app.config import Settings
 from app.deepseek_client import DeepSeekClient, DeepSeekConfigError
+from app.storage import RuntimeStore
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -37,8 +38,11 @@ known_bot_control_item_keys: set[str] = set()
 bot_control_state_loaded = False
 process_unread_lock = asyncio.Lock()
 bot_worker_task: asyncio.Task[None] | None = None
+backup_worker_task: asyncio.Task[None] | None = None
 bot_worker_enabled = False
 bot_worker_interval_seconds = 5
+runtime_store: RuntimeStore | None = None
+runtime_store_key: tuple[str, str, str] | None = None
 bot_activity: dict[str, Any] = {
     "enabled": False,
     "running": False,
@@ -72,8 +76,18 @@ async def _restore_bot_worker_state() -> None:
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
+    global backup_worker_task
+    get_runtime_store().ensure_schema()
+    _migrate_legacy_runtime_json_to_store()
     await _restore_bot_worker_state()
-    yield
+    backup_worker_task = asyncio.create_task(_backup_worker_loop())
+    try:
+        yield
+    finally:
+        if backup_worker_task is not None:
+            backup_worker_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await backup_worker_task
 
 
 app = FastAPI(title="avito-bot", version="0.1.0", lifespan=lifespan)
@@ -129,6 +143,27 @@ async def health() -> dict[str, str]:
 @app.get("/api/config/status")
 async def config_status() -> dict[str, object]:
     return get_settings().public_status()
+
+
+@app.get("/api/storage/status")
+async def storage_status() -> dict[str, object]:
+    return {
+        **get_runtime_store().status(),
+        "backup_interval_seconds": get_settings().backup_interval_seconds,
+        "backup_retention_count": get_settings().backup_retention_count,
+    }
+
+
+@app.post("/api/storage/backup")
+async def storage_backup() -> dict[str, object]:
+    result = get_runtime_store().create_backup(keep=get_settings().backup_retention_count)
+    return {
+        "ok": True,
+        "backend": result.backend,
+        "path": str(result.path),
+        "bytes": result.bytes,
+        "created_at": result.created_at,
+    }
 
 
 @app.post("/api/ai/ping")
@@ -187,6 +222,7 @@ async def avito_chats(limit: int = 20, offset: int = 0, unread_only: bool = Fals
         response = await client.get_chats(limit=limit, offset=offset, unread_only=unread_only)
     except Exception as exc:
         raise _to_http_error(exc) from exc
+    _persist_avito_chats(list(response.get("chats", [])))
     _apply_manual_default_for_new_items(list(response.get("chats", [])))
     return response
 
@@ -195,27 +231,37 @@ async def avito_chats(limit: int = 20, offset: int = 0, unread_only: bool = Fals
 async def avito_chat(chat_id: str) -> dict[str, Any]:
     client = AvitoClient(get_settings())
     try:
-        return await client.get_chat(chat_id)
+        response = await client.get_chat(chat_id)
     except Exception as exc:
         raise _to_http_error(exc) from exc
+    _persist_avito_chats([{**response, "id": response.get("id") or chat_id}])
+    return response
 
 
 @app.get("/api/avito/chats/{chat_id}/messages")
 async def avito_messages(chat_id: str, limit: int = 50, offset: int = 0) -> dict[str, Any]:
     client = AvitoClient(get_settings())
     try:
-        return await client.get_messages(chat_id, limit=limit, offset=offset)
+        response = await client.get_messages(chat_id, limit=limit, offset=offset)
     except Exception as exc:
         raise _to_http_error(exc) from exc
+    _persist_avito_messages(chat_id, response)
+    return response
 
 
 @app.post("/api/avito/chats/{chat_id}/messages")
 async def avito_send_message(chat_id: str, request: SendMessageRequest) -> dict[str, Any]:
     client = AvitoClient(get_settings())
     try:
-        return await client.send_text_message(chat_id, request.text)
+        response = await client.send_text_message(chat_id, request.text)
     except Exception as exc:
         raise _to_http_error(exc) from exc
+    get_runtime_store().record_manager_action(
+        chat_id,
+        "send_message",
+        {"text": request.text, "avito_response": response},
+    )
+    return response
 
 
 @app.post("/api/avito/chats/{chat_id}/read")
@@ -258,6 +304,11 @@ async def avito_set_chat_bot_control(chat_id: str, request: ChatBotControlReques
     else:
         manager_takeover_chat_ids.discard(chat_id)
     _save_bot_control_state()
+    get_runtime_store().record_manager_action(
+        chat_id,
+        "set_bot_control",
+        {"manager_takeover": request.manager_takeover},
+    )
     return _chat_bot_control_response(chat_id)
 
 
@@ -342,6 +393,7 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
             except Exception:
                 chats.append({"id": chat_id})
 
+    _persist_avito_chats(chats)
     _apply_manual_default_for_new_items(chats)
 
     for chat in chats:
@@ -355,6 +407,7 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
 
         try:
             messages = await avito.get_messages(chat_id, limit=30)
+            _persist_avito_messages(chat_id, messages)
             latest_message = _latest_non_system_message(messages)
             pending_item = pending.get(chat_id)
             if not latest_message or latest_message.get("direction") != "in":
@@ -405,6 +458,11 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
                 continue
 
             sent = await avito.send_text_message(chat_id, draft.text.strip())
+            get_runtime_store().record_manager_action(
+                chat_id,
+                "ai_auto_reply_sent",
+                {"text": draft.text.strip(), "avito_response": sent},
+            )
             sent_at = time.time()
             _clear_autoreply_pending(chat_id)
             results.append(
@@ -484,6 +542,11 @@ def _chat_bot_control_response(chat_id: str) -> dict[str, Any]:
 async def avito_webhook(payload: dict[str, Any]) -> dict[str, object]:
     webhook_events.insert(0, payload)
     del webhook_events[50:]
+    get_runtime_store().record_manager_action(
+        str(payload.get("chat_id") or payload.get("id") or "webhook"),
+        "webhook_received",
+        payload,
+    )
     return {"ok": True}
 
 
@@ -492,13 +555,73 @@ async def avito_webhook_events() -> dict[str, Any]:
     return {"events": webhook_events}
 
 
-def _load_autoreply_pending() -> dict[str, dict[str, Any]]:
-    if not AUTOREPLY_PENDING_PATH.exists():
-        return {}
+def get_runtime_store() -> RuntimeStore:
+    global runtime_store, runtime_store_key
+    candidate = RuntimeStore.from_settings(get_settings(), root=ROOT, runtime_dir=RUNTIME_DIR)
+    candidate_key = candidate.cache_key()
+    if runtime_store is None or runtime_store_key != candidate_key:
+        runtime_store = candidate
+        runtime_store_key = candidate_key
+        runtime_store.ensure_schema()
+    return runtime_store
+
+
+async def _backup_worker_loop() -> None:
+    while True:
+        await asyncio.sleep(get_settings().backup_interval_seconds)
+        try:
+            store = get_runtime_store()
+            store.create_backup(keep=get_settings().backup_retention_count)
+        except Exception as exc:  # pragma: no cover - surfaced through storage status/logs
+            bot_activity["last_backup_error"] = _error_detail(exc)
+
+
+def _migrate_legacy_runtime_json_to_store() -> None:
+    store = get_runtime_store()
+    if store.get_state("autoreply_pending") is None and AUTOREPLY_PENDING_PATH.exists():
+        pending = _load_json_file(AUTOREPLY_PENDING_PATH, default={})
+        if isinstance(pending, dict):
+            store.set_state("autoreply_pending", pending)
+    if store.get_state("autoreply_enabled") is None and AUTOREPLY_STATE_PATH.exists():
+        state = _load_json_file(AUTOREPLY_STATE_PATH, default={})
+        if isinstance(state, dict):
+            store.set_state("autoreply_enabled", bool(state.get("enabled") is True))
+    if store.get_state("bot_control") is None and BOT_CONTROL_STATE_PATH.exists():
+        state = _load_json_file(BOT_CONTROL_STATE_PATH, default={})
+        if isinstance(state, dict):
+            store.set_state("bot_control", state)
+
+
+def _load_json_file(path: Path, *, default: Any) -> Any:
     try:
-        data = json.loads(AUTOREPLY_PENDING_PATH.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return {}
+        return default
+
+
+def _persist_avito_chats(chats: list[dict[str, Any]]) -> None:
+    try:
+        get_runtime_store().upsert_avito_chats(chats)
+    except Exception:
+        pass
+
+
+def _persist_avito_messages(chat_id: str, messages_response: dict[str, Any]) -> None:
+    messages = list(messages_response.get("messages", []))
+    if not messages:
+        return
+    try:
+        get_runtime_store().upsert_avito_messages(chat_id, messages)
+    except Exception:
+        pass
+
+
+def _load_autoreply_pending() -> dict[str, dict[str, Any]]:
+    data = get_runtime_store().get_state("autoreply_pending")
+    if data is None:
+        data = _load_json_file(AUTOREPLY_PENDING_PATH, default={}) if AUTOREPLY_PENDING_PATH.exists() else {}
+        if isinstance(data, dict):
+            get_runtime_store().set_state("autoreply_pending", data)
     if not isinstance(data, dict):
         return {}
     pending: dict[str, dict[str, Any]] = {}
@@ -509,6 +632,7 @@ def _load_autoreply_pending() -> dict[str, dict[str, Any]]:
 
 
 def _write_autoreply_pending(pending: dict[str, dict[str, Any]]) -> None:
+    get_runtime_store().set_state("autoreply_pending", pending)
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
     temp_path = AUTOREPLY_PENDING_PATH.with_suffix(".json.tmp")
     temp_path.write_text(json.dumps(pending, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -529,20 +653,21 @@ def _clear_autoreply_pending(chat_id: str) -> None:
     if pending:
         _write_autoreply_pending(pending)
     else:
+        get_runtime_store().set_state("autoreply_pending", {})
         AUTOREPLY_PENDING_PATH.unlink(missing_ok=True)
 
 
 def _load_autoreply_enabled() -> bool:
-    if not AUTOREPLY_STATE_PATH.exists():
-        return False
-    try:
-        data = json.loads(AUTOREPLY_STATE_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return False
-    return bool(isinstance(data, dict) and data.get("enabled") is True)
+    data = get_runtime_store().get_state("autoreply_enabled")
+    if data is None:
+        legacy = _load_json_file(AUTOREPLY_STATE_PATH, default={}) if AUTOREPLY_STATE_PATH.exists() else {}
+        data = bool(isinstance(legacy, dict) and legacy.get("enabled") is True)
+        get_runtime_store().set_state("autoreply_enabled", data)
+    return bool(data)
 
 
 def _save_autoreply_enabled(enabled: bool) -> None:
+    get_runtime_store().set_state("autoreply_enabled", enabled)
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
     temp_path = AUTOREPLY_STATE_PATH.with_suffix(".json.tmp")
     temp_path.write_text(json.dumps({"enabled": enabled}, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -554,11 +679,12 @@ def _ensure_bot_control_state_loaded() -> None:
     if bot_control_state_loaded:
         return
     bot_control_state_loaded = True
-    if not BOT_CONTROL_STATE_PATH.exists():
-        return
-    try:
-        data = json.loads(BOT_CONTROL_STATE_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    data = get_runtime_store().get_state("bot_control")
+    if data is None and BOT_CONTROL_STATE_PATH.exists():
+        data = _load_json_file(BOT_CONTROL_STATE_PATH, default={})
+        if isinstance(data, dict):
+            get_runtime_store().set_state("bot_control", data)
+    if data is None:
         return
     if not isinstance(data, dict):
         return
@@ -575,18 +701,16 @@ def _ensure_bot_control_state_loaded() -> None:
 
 
 def _save_bot_control_state() -> None:
+    data = {
+        "known_chat_ids": sorted(known_bot_control_chat_ids),
+        "known_item_keys": sorted(known_bot_control_item_keys),
+        "manager_takeover_chat_ids": sorted(manager_takeover_chat_ids),
+    }
+    get_runtime_store().set_state("bot_control", data)
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
     temp_path = BOT_CONTROL_STATE_PATH.with_suffix(".json.tmp")
     temp_path.write_text(
-        json.dumps(
-            {
-                "known_chat_ids": sorted(known_bot_control_chat_ids),
-                "known_item_keys": sorted(known_bot_control_item_keys),
-                "manager_takeover_chat_ids": sorted(manager_takeover_chat_ids),
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
+        json.dumps(data, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     temp_path.replace(BOT_CONTROL_STATE_PATH)

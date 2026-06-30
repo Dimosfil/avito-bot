@@ -16,6 +16,6 @@ COPY app ./app
 
 RUN mkdir -p /app/.codex-runtime
 
-EXPOSE 8000
+EXPOSE 3000
 
-CMD ["sh", "-c", "uv run uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "uv run uvicorn app.main:app --host ${API_HOST:-0.0.0.0} --port ${PORT:-${API_PORT:-3000}}"]

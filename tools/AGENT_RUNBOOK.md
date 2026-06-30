@@ -52,7 +52,10 @@ http://127.0.0.1:8000
 ```
 
 Docker keeps runtime state in the host `.codex-runtime/` folder through a bind
-mount. Preserve this folder across container rebuilds and restarts.
+mount when external storage is not configured. Preserve this folder across
+container rebuilds and restarts. On Bothost production, prefer managed
+PostgreSQL through `DATABASE_URL`; if shared files are enabled through
+`SHARED_DIR`, SQLite and backups fall back to `$SHARED_DIR/avito-bot/`.
 
 ## Bothost Deployment
 
@@ -65,30 +68,37 @@ Current Bothost deployment settings:
   panel category; the app runtime is still defined by the project Dockerfile.
 - Domain access: enabled.
 - Public domain: `avitobot.bothost.tech`.
-- Web application port: `8000`.
+- Web application port: `3000`.
 - Main file / entry point: leave empty for Dockerfile deployments.
 - Region shown by Bothost: `Новосибирск 7 (nsk7)`, `Россия`.
 
 Required deployment environment variables:
 
 ```text
-PORT=8000
+API_HOST=0.0.0.0
+API_PORT=3000
 AI_PROVIDER=deepseek
 DEEPSEEK_API_KEY=<secret>
 DEEPSEEK_MODEL=deepseek-v4-flash
 AVITO_CLIENT_ID=<secret>
 AVITO_CLIENT_SECRET=<secret>
+DATABASE_URL=<Bothost PostgreSQL connection string>
 ```
 
 Optional or currently blank variables:
 
 ```text
 HOST_PORT=8000
+PORT=
 AVITO_USER_ID=
 AVITO_WEBHOOK_URL=
 CODEX_APP_SERVER_BASE_URL=
 CODEX_APP_SERVER_API_KEY=
 CODEX_APP_SERVER_MODEL=codex
+AVITO_DATABASE_PATH=
+AVITO_BACKUP_DIR=
+AVITO_BACKUP_INTERVAL_SECONDS=21600
+AVITO_BACKUP_RETENTION_COUNT=14
 ```
 
 Bothost health check URL:
@@ -123,13 +133,15 @@ uv run python -m compileall app tests
 ```powershell
 Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/health"
 Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/config/status"
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/storage/status"
 ```
 
 Expected result:
 
 ```text
 Health returns {"status":"ok"}. Config status shows booleans and never prints
-the Avito client secret.
+the Avito client secret. Storage status shows the active backend, backup
+directory, and latest backup path without printing database credentials.
 ```
 
 ## Logs
@@ -149,8 +161,16 @@ the Avito client secret.
 - For Codex App Server, set `CODEX_APP_SERVER_BASE_URL` to an OpenAI-compatible
   API base that exposes `/chat/completions`. Optional settings:
   `CODEX_APP_SERVER_API_KEY` and `CODEX_APP_SERVER_MODEL`.
-- `PORT` is the container port. Hosting platforms may inject it automatically;
-  local Docker Compose defaults to `8000`.
+- `API_HOST` and `API_PORT` are the preferred Docker host/port variables for
+  Bothost-style deployments. Use `API_HOST=0.0.0.0` and `API_PORT=3000`.
+- `PORT` is also supported when a hosting platform injects it. Local Docker
+  Compose uses `HOST_PORT=8000` for the browser URL.
+- `DATABASE_URL` enables PostgreSQL runtime storage. Leave it blank for local
+  SQLite.
+- `AVITO_DATABASE_PATH` overrides the SQLite file path.
+- `AVITO_BACKUP_DIR` overrides backup storage. If it is blank and `SHARED_DIR`
+  exists, backups go to `$SHARED_DIR/avito-bot/backups`; otherwise they go to
+  `.codex-runtime/backups`.
 - Keep `.env` out of git.
 - `AVITO_USER_ID` is optional for startup; the app tries to infer it from
   `GET /core/v1/accounts/self`.

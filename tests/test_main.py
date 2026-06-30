@@ -11,12 +11,19 @@ def clear_runtime_state(tmp_path, monkeypatch):
     monkeypatch.setattr(main_module, "AUTOREPLY_PENDING_PATH", tmp_path / "autoreply-pending.json")
     monkeypatch.setattr(main_module, "AUTOREPLY_STATE_PATH", tmp_path / "autoreply-state.json")
     monkeypatch.setattr(main_module, "BOT_CONTROL_STATE_PATH", tmp_path / "bot-control-state.json")
+    monkeypatch.setenv("AVITO_DATABASE_PATH", str(tmp_path / "avito-bot.sqlite3"))
+    monkeypatch.setenv("AVITO_BACKUP_DIR", str(tmp_path / "backups"))
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("SHARED_DIR", raising=False)
+    main_module.runtime_store = None
+    main_module.runtime_store_key = None
     manager_takeover_chat_ids.clear()
     main_module.known_bot_control_chat_ids.clear()
     main_module.known_bot_control_item_keys.clear()
     main_module.bot_control_state_loaded = False
     main_module.bot_worker_enabled = False
     main_module.bot_worker_task = None
+    main_module.backup_worker_task = None
     main_module.bot_activity.update({"enabled": False, "running": False, "last_result": None, "last_error": None})
     yield
     manager_takeover_chat_ids.clear()
@@ -25,6 +32,9 @@ def clear_runtime_state(tmp_path, monkeypatch):
     main_module.bot_control_state_loaded = False
     main_module.bot_worker_enabled = False
     main_module.bot_worker_task = None
+    main_module.backup_worker_task = None
+    main_module.runtime_store = None
+    main_module.runtime_store_key = None
     main_module.bot_activity.update({"enabled": False, "running": False, "last_result": None, "last_error": None})
 
 
@@ -35,6 +45,19 @@ def test_health() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_storage_status_and_manual_backup() -> None:
+    client = TestClient(app)
+
+    status = client.get("/api/storage/status")
+    backup = client.post("/api/storage/backup")
+
+    assert status.status_code == 200
+    assert status.json()["backend"] == "sqlite"
+    assert backup.status_code == 200
+    assert backup.json()["ok"] is True
+    assert backup.json()["path"].endswith(".sqlite3")
 
 
 def test_webhook_echo_storage() -> None:

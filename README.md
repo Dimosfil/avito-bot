@@ -74,7 +74,7 @@ http://127.0.0.1:8010
 
 The project root can also run as a single Docker service. The container starts
 FastAPI/Uvicorn, serves the static manager UI, and keeps bot runtime state in a
-mounted `.codex-runtime/` folder.
+mounted `.codex-runtime/` folder unless external storage is configured.
 
 Prepare host environment:
 
@@ -83,9 +83,16 @@ Copy-Item .\env.docker.example .\.env
 ```
 
 Fill `.env` with Avito credentials and the selected AI provider credentials.
-Keep `PORT=8000` unless the hosting platform injects another `PORT` value.
-Keep `HOST_PORT=8000` for local Docker Compose unless the host already uses
-that port.
+For Bothost-style Docker hosting, use `API_HOST=0.0.0.0` and
+`API_PORT=3000`. `PORT` is also supported when a platform injects it. Keep
+`HOST_PORT=8000` for local Docker Compose unless the host already uses that
+browser port.
+
+For production state storage, prefer the managed PostgreSQL database from the
+hosting panel and set `DATABASE_URL` to its connection string. If
+`DATABASE_URL` is blank and the host provides shared files through `SHARED_DIR`,
+the app stores SQLite state and backups under `$SHARED_DIR/avito-bot/`. If
+neither is available, it falls back to `.codex-runtime/`.
 
 Build and start:
 
@@ -100,7 +107,7 @@ http://127.0.0.1:8000
 ```
 
 Current Bothost deployment uses the repository `Dockerfile`, domain
-`https://avitobot.bothost.tech`, and web application port `8000`. Leave the
+`https://avitobot.bothost.tech`, and web application port `3000`. Leave the
 hosting panel's main file / entry point field empty for Dockerfile deployments.
 Check the public runtime at:
 
@@ -115,11 +122,42 @@ docker compose ps
 docker compose logs -f avito-bot
 Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/health"
 Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/config/status"
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/storage/status"
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/storage/backup"
 docker compose down
 ```
 
 Do not delete `.codex-runtime/` on a live host. It stores server-side autoreply,
-pending autoreply, and manager takeover state.
+pending autoreply, and manager takeover state when external storage is not
+configured. When `DATABASE_URL` is set, the same state is stored in PostgreSQL.
+
+## Runtime Storage And Backups
+
+The app has a small persistent runtime store for bot state and Avito sync
+snapshots:
+
+- server-side autoreply enabled/disabled state;
+- pending autoreply records used to survive restarts after marking a chat read;
+- manager takeover state per chat/listing;
+- last seen Avito chats and messages;
+- manager and bot actions used as an audit trail.
+
+Storage selection:
+
+- `DATABASE_URL` set to PostgreSQL: use the managed PostgreSQL database. This is
+  the recommended production option on Bothost because it survives container VM
+  replacement.
+- `DATABASE_URL` blank and `SHARED_DIR` available: use SQLite at
+  `$SHARED_DIR/avito-bot/avito-bot.sqlite3` and backups under
+  `$SHARED_DIR/avito-bot/backups`.
+- No external storage variables: use local `.codex-runtime/avito-bot.sqlite3`
+  and `.codex-runtime/backups`.
+
+Automatic backups run every `AVITO_BACKUP_INTERVAL_SECONDS` seconds, default
+`21600` or 6 hours, and keep `AVITO_BACKUP_RETENTION_COUNT` backups, default
+`14`. For SQLite, backups are consistent `.sqlite3` copies. For PostgreSQL, the
+app writes a JSON export of application tables; the database itself should also
+be protected by the hoster's managed PostgreSQL retention.
 
 MVP target:
 

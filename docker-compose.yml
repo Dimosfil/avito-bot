@@ -8,11 +8,11 @@ services:
         required: false
     restart: unless-stopped
     ports:
-      - "${HOST_PORT:-8000}:${PORT:-8000}"
+      - "${HOST_PORT:-8000}:${PORT:-${API_PORT:-3000}}"
     volumes:
       - ./.codex-runtime:/app/.codex-runtime
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import json, os, urllib.request; port=os.getenv('PORT', '8000'); r=urllib.request.urlopen(f'http://127.0.0.1:{port}/api/health', timeout=3); raise SystemExit(0 if json.load(r).get('status') == 'ok' else 1)\""]
+      test: ["CMD-SHELL", "python -c \"import json, os, urllib.request; port=os.getenv('PORT') or os.getenv('API_PORT') or '3000'; r=urllib.request.urlopen(f'http://127.0.0.1:{port}/api/health', timeout=3); raise SystemExit(0 if json.load(r).get('status') == 'ok' else 1)\""]
       interval: 30s
       timeout: 5s
       retries: 3
