@@ -136,6 +136,10 @@ First runnable slice:
   even if the latest message changes to a neutral manager follow-up. Follow-up
   phrases such as "определился", manager handoff wording, exact calculation, or
   proposal preparation are also qualification signals.
+- Sticky `Согласились купить` chat IDs are server runtime state, not only
+  browser `localStorage`. The UI may keep a browser cache for fast restore and
+  migration, but it must sync that cache through the backend so host rebuilds,
+  browser changes, and domain/origin changes do not lose qualified leads.
 - UI service-purchase trigger words and regex phrases must live in a separate
   project-local rules dictionary, not inline inside the chat rendering logic.
   The current browser-side dictionary is `app/static/bot-rules.js` under

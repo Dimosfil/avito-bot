@@ -124,6 +124,32 @@ def test_admin_command_enables_admin_mode_prompt_for_llm() -> None:
     assert "ADMIN MODE is active" in calls[0][0].content
 
 
+def test_draft_reply_sanitizes_markdown_and_stray_symbols() -> None:
+    class CapturingDeepSeek:
+        async def create_chat_completion(self, messages):
+            return "**Mode**: active\n- **Rules**: use `plain text`. Which\u2030scenario?"
+
+    assistant = SalesAssistant(CapturingDeepSeek())
+    draft = asyncio.run(
+        assistant.draft_reply(
+            {},
+            {"messages": [{"direction": "in", "content": {"text": "547032 rules"}}]},
+        )
+    )
+
+    assert draft.text == "Mode: active\n- Rules: use plain text. Which scenario?"
+    assert "**" not in draft.text
+    assert "`" not in draft.text
+    assert "\u2030" not in draft.text
+
+
+def test_admin_prompt_forbids_markdown_formatting() -> None:
+    prompt = build_prompt({}, [{"direction": "in", "content": {"text": "547032 rules"}}])
+
+    assert "Use plain text only" in prompt[0].content
+    assert "Do not use Markdown formatting" in prompt[0].content
+
+
 def test_build_prompt_includes_item_context() -> None:
     chat = {"context": {"value": {"title": "Test item", "price_string": "1000 ₽", "url": "https://example.test"}}}
     messages = [{"direction": "in", "content": {"text": "Здравствуйте"}}]

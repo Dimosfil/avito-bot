@@ -54,6 +54,21 @@ class BotRules:
     dialogue_guidance: DialogueGuidanceRules
 
 
+MARKDOWN_EMPHASIS_RE = re.compile(r"(?<!\*)\*\*([^*\n]+?)\*\*(?!\*)|(?<!_)__([^_\n]+?)__(?!_)")
+INLINE_CODE_RE = re.compile(r"`([^`\n]+?)`")
+MARKDOWN_HEADING_RE = re.compile(r"(?m)^\s{0,3}#{1,6}\s+")
+OUTGOING_TEXT_TRANSLATION = str.maketrans(
+    {
+        "\ufeff": "",
+        "\u200b": "",
+        "\u200c": "",
+        "\u200d": "",
+        "\u2030": " ",
+        "\ufffd": " ",
+    }
+)
+
+
 def load_bot_rules(path: Path | str | None = None) -> BotRules:
     rules_path = Path(path) if path is not None else _configured_rules_path()
     data = _read_rules_json(rules_path)
@@ -182,6 +197,20 @@ def strip_seller_name_address(text: str, *, client_name: str | None = None) -> s
     if client_name and client_name.casefold() in RULES.post_processing.client_name_passthrough:
         return text.strip()
     return SELLER_NAME_ADDRESS_RE.sub("", text, count=1).strip() or text.strip()
+
+
+def sanitize_outgoing_text(text: str) -> str:
+    cleaned = text.translate(OUTGOING_TEXT_TRANSLATION).replace("```", "")
+    previous = None
+    while previous != cleaned:
+        previous = cleaned
+        cleaned = MARKDOWN_EMPHASIS_RE.sub(lambda match: match.group(1) or match.group(2) or "", cleaned)
+    cleaned = INLINE_CODE_RE.sub(r"\1", cleaned)
+    cleaned = MARKDOWN_HEADING_RE.sub("", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    cleaned = re.sub(r"\n[ \t]+", "\n", cleaned)
+    return cleaned.strip()
 
 
 def _configured_rules_path() -> Path:

@@ -87,6 +87,23 @@ def test_chat_bot_control_roundtrip() -> None:
     assert disabled.json() == {"chat_id": "chat-1", "manager_takeover": False, "bot_enabled": True}
 
 
+def test_qualified_buying_chats_are_persisted() -> None:
+    client = TestClient(app)
+
+    initial = client.get("/api/avito/qualified-buying-chats")
+    saved = client.post(
+        "/api/avito/qualified-buying-chats",
+        json={"chat_ids": ["chat-2", "chat-1", "chat-1", ""]},
+    )
+    loaded = client.get("/api/avito/qualified-buying-chats")
+
+    assert initial.status_code == 200
+    assert initial.json() == {"chat_ids": [], "count": 0}
+    assert saved.status_code == 200
+    assert saved.json() == {"chat_ids": ["chat-1", "chat-2"], "count": 2}
+    assert loaded.json() == {"chat_ids": ["chat-1", "chat-2"], "count": 2}
+
+
 def test_new_items_default_to_manager_takeover_without_changing_existing(monkeypatch) -> None:
     class FakeAvitoClient:
         get_chats_calls = 0

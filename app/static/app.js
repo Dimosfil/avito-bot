@@ -106,6 +106,7 @@ async function initialize() {
   restoreManagerPageState();
   initializeStatsDates();
   const status = await refreshStatus();
+  await syncQualifiedBuyingChatIdsFromServer();
   if (status.avito_client_id_configured && status.avito_client_secret_configured) {
     try {
       await loadChats();
@@ -1640,10 +1641,44 @@ function loadQualifiedBuyingChatIds() {
 }
 
 function saveQualifiedBuyingChatIds() {
+  writeQualifiedBuyingChatIdsCache();
+  persistQualifiedBuyingChatIdsToServer();
+}
+
+function writeQualifiedBuyingChatIdsCache() {
   try {
     window.localStorage.setItem(QUALIFIED_BUYING_CHAT_IDS_KEY, JSON.stringify([...qualifiedBuyingChatIds]));
   } catch (error) {
     // Non-critical: classification still works for the current render.
+  }
+}
+
+async function syncQualifiedBuyingChatIdsFromServer() {
+  const localChatIds = new Set(qualifiedBuyingChatIds);
+  try {
+    const data = await api("/api/avito/qualified-buying-chats", { quiet: true });
+    const serverChatIds = new Set((data.chat_ids || []).map(String));
+    serverChatIds.forEach((chatId) => qualifiedBuyingChatIds.add(chatId));
+    writeQualifiedBuyingChatIdsCache();
+    const hasLocalOnlyIds = [...localChatIds].some((chatId) => !serverChatIds.has(chatId));
+    if (hasLocalOnlyIds) {
+      await persistQualifiedBuyingChatIdsToServer();
+    }
+  } catch (error) {
+    // Non-critical: local classification still works while the backend catches up.
+  }
+}
+
+async function persistQualifiedBuyingChatIdsToServer() {
+  try {
+    await api("/api/avito/qualified-buying-chats", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_ids: [...qualifiedBuyingChatIds] }),
+      quiet: true,
+    });
+  } catch (error) {
+    // Non-critical: keep the browser cache and retry on the next page load/change.
   }
 }
 

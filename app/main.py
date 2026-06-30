@@ -31,6 +31,7 @@ RUNTIME_DIR = ROOT / ".codex-runtime"
 AUTOREPLY_PENDING_PATH = RUNTIME_DIR / "autoreply-pending.json"
 AUTOREPLY_STATE_PATH = RUNTIME_DIR / "autoreply-state.json"
 BOT_CONTROL_STATE_PATH = RUNTIME_DIR / "bot-control-state.json"
+QUALIFIED_BUYING_STATE_KEY = "qualified_buying_chat_ids"
 
 webhook_events: list[dict[str, Any]] = []
 manager_takeover_chat_ids: set[str] = set()
@@ -106,6 +107,10 @@ class DraftReplyRequest(BaseModel):
 
 class ChatBotControlRequest(BaseModel):
     manager_takeover: bool
+
+
+class QualifiedBuyingChatsRequest(BaseModel):
+    chat_ids: list[str] = Field(default_factory=list)
 
 
 class ItemStatsRequest(BaseModel):
@@ -311,6 +316,20 @@ async def avito_set_chat_bot_control(chat_id: str, request: ChatBotControlReques
         {"manager_takeover": request.manager_takeover},
     )
     return _chat_bot_control_response(chat_id)
+
+
+@app.get("/api/avito/qualified-buying-chats")
+async def avito_qualified_buying_chats() -> dict[str, Any]:
+    chat_ids = _load_qualified_buying_chat_ids()
+    return {"chat_ids": sorted(chat_ids), "count": len(chat_ids)}
+
+
+@app.post("/api/avito/qualified-buying-chats")
+async def avito_save_qualified_buying_chats(request: QualifiedBuyingChatsRequest) -> dict[str, Any]:
+    chat_ids = _load_qualified_buying_chat_ids()
+    chat_ids.update(_normalize_chat_ids(request.chat_ids))
+    _save_qualified_buying_chat_ids(chat_ids)
+    return {"chat_ids": sorted(chat_ids), "count": len(chat_ids)}
 
 
 @app.post("/api/avito/chats/{chat_id}/ai-draft")
@@ -715,6 +734,23 @@ def _save_bot_control_state() -> None:
         encoding="utf-8",
     )
     temp_path.replace(BOT_CONTROL_STATE_PATH)
+
+
+def _load_qualified_buying_chat_ids() -> set[str]:
+    data = get_runtime_store().get_state(QUALIFIED_BUYING_STATE_KEY)
+    if isinstance(data, list):
+        return _normalize_chat_ids(data)
+    if isinstance(data, dict):
+        return _normalize_chat_ids(data.get("chat_ids", []))
+    return set()
+
+
+def _save_qualified_buying_chat_ids(chat_ids: set[str]) -> None:
+    get_runtime_store().set_state(QUALIFIED_BUYING_STATE_KEY, sorted(chat_ids))
+
+
+def _normalize_chat_ids(chat_ids: list[Any]) -> set[str]:
+    return {str(chat_id).strip() for chat_id in chat_ids if str(chat_id).strip()}
 
 
 def _apply_manual_default_for_new_items(chats: list[dict[str, Any]]) -> None:
