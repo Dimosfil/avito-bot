@@ -68,7 +68,7 @@ Current Bothost deployment settings:
   panel category; the app runtime is still defined by the project Dockerfile.
 - Domain access: enabled.
 - Public domain: `avitobot.bothost.tech`.
-- Web application port: `3000`.
+- Web application port: `8000`.
 - Main file / entry point: leave empty for Dockerfile deployments.
 - Region shown by Bothost: `Новосибирск 7 (nsk7)`, `Россия`.
 
@@ -76,7 +76,7 @@ Required deployment environment variables:
 
 ```text
 API_HOST=0.0.0.0
-API_PORT=3000
+API_PORT=8000
 AI_PROVIDER=deepseek
 DEEPSEEK_API_KEY=<secret>
 DEEPSEEK_MODEL=deepseek-v4-flash
@@ -162,7 +162,7 @@ directory, and latest backup path without printing database credentials.
   API base that exposes `/chat/completions`. Optional settings:
   `CODEX_APP_SERVER_API_KEY` and `CODEX_APP_SERVER_MODEL`.
 - `API_HOST` and `API_PORT` are the preferred Docker host/port variables for
-  Bothost-style deployments. Use `API_HOST=0.0.0.0` and `API_PORT=3000`.
+  Docker deployments. Use `API_HOST=0.0.0.0` and `API_PORT=8000`.
 - `PORT` is also supported when a hosting platform injects it. Local Docker
   Compose uses `HOST_PORT=8000` for the browser URL.
 - `DATABASE_URL` enables PostgreSQL runtime storage. Leave it blank for local

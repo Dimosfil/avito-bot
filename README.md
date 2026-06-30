@@ -83,8 +83,8 @@ Copy-Item .\env.docker.example .\.env
 ```
 
 Fill `.env` with Avito credentials and the selected AI provider credentials.
-For Bothost-style Docker hosting, use `API_HOST=0.0.0.0` and
-`API_PORT=3000`. `PORT` is also supported when a platform injects it. Keep
+For Docker hosting, use `API_HOST=0.0.0.0` and `API_PORT=8000`. `PORT` is also
+supported when a platform injects it. Keep
 `HOST_PORT=8000` for local Docker Compose unless the host already uses that
 browser port.
 
@@ -107,7 +107,7 @@ http://127.0.0.1:8000
 ```
 
 Current Bothost deployment uses the repository `Dockerfile`, domain
-`https://avitobot.bothost.tech`, and web application port `3000`. Leave the
+`https://avitobot.bothost.tech`, and web application port `8000`. Leave the
 hosting panel's main file / entry point field empty for Dockerfile deployments.
 Check the public runtime at:
 
