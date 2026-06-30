@@ -184,3 +184,10 @@ Inspect logs:
 - Treat this project root as the filesystem boundary for normal work unless the
   user gives an explicit concrete path and action.
 - Preserve text encodings when editing files.
+- Production runtime state is business-critical. `gi prod`, production reboot,
+  and local release deploys must preserve `.release/.codex-runtime/` state,
+  including server-side autoreply, pending autoreply, and manager takeover
+  state. If no previous production runtime state exists, seed it from the
+  development `.codex-runtime/` before starting `.release`. Never report the
+  production bot as successfully deployed or rebooted if server-side autoreply
+  was enabled before the operation and is disabled afterward.

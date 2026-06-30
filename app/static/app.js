@@ -124,10 +124,13 @@ async function refreshStatus() {
   showOutput(data);
   const ready = data.avito_client_id_configured && data.avito_client_secret_configured;
   avitoCredentialsReady = ready;
+  const aiProvider = data.ai_provider || "deepseek";
+  const aiStatus =
+    aiProvider === "codex_app_server"
+      ? `Codex App Server: ${data.codex_app_server_configured ? data.codex_app_server_model : "not configured"}`
+      : `DeepSeek: ${data.deepseek_api_key_configured ? data.deepseek_model : "not configured"} · Codex fallback: ${data.codex_app_server_configured ? data.codex_app_server_model : "not configured"}`;
   connectionLine.textContent = ready
-    ? `Avito: ${data.avito_client_id_preview || "configured"} · DeepSeek: ${
-        data.deepseek_api_key_configured ? data.deepseek_model : "not configured"
-      }`
+    ? `Avito: ${data.avito_client_id_preview || "configured"} · ${aiStatus}`
     : "Avito credentials are not configured";
   connectionLine.className = ready ? "" : "error";
   updateAvitoControls(ready);
@@ -1367,7 +1370,7 @@ function renderChats(chats) {
     const icon = document.createElement("span");
     icon.className = "chat-folder-icon";
     icon.setAttribute("aria-hidden", "true");
-    icon.textContent = openChatFolderKeys.has(group.key) ? "▾" : "›";
+    icon.classList.toggle("open", openChatFolderKeys.has(group.key));
 
     const title = document.createElement("span");
     title.className = "chat-folder-title";
@@ -1422,7 +1425,7 @@ function createChatBucket(groupKey, bucketKey, title, chats, { highlighted = fal
   const icon = document.createElement("span");
   icon.className = "chat-bucket-icon";
   icon.setAttribute("aria-hidden", "true");
-  icon.textContent = isOpen ? "v" : ">";
+  icon.classList.toggle("open", isOpen);
 
   const name = document.createElement("span");
   name.className = "chat-bucket-title";
@@ -1569,7 +1572,7 @@ function isBuyingChat(chat) {
     return true;
   }
 
-  const hasPreviewSignal = hasBuyingIntent(getChatPreviewText(chat));
+  const hasPreviewSignal = getLastMessageDirection(chat) === "in" && hasBuyingIntent(getChatPreviewText(chat));
   if (hasPreviewSignal && chat.id) {
     qualifiedBuyingChatIds.add(String(chat.id));
     saveQualifiedBuyingChatIds();
@@ -1579,11 +1582,15 @@ function isBuyingChat(chat) {
 
 function markBuyingChatFromMessages(chatId, messages) {
   if (!chatId || qualifiedBuyingChatIds.has(String(chatId))) return false;
-  const text = messages.map(getMessageText).filter(Boolean).join("\n");
+  const text = messages.filter(isClientMessage).map(getMessageText).filter(Boolean).join("\n");
   if (!text || !hasBuyingIntent(text)) return false;
   qualifiedBuyingChatIds.add(String(chatId));
   saveQualifiedBuyingChatIds();
   return true;
+}
+
+function isClientMessage(message) {
+  return message?.direction === "in";
 }
 
 function hasBuyingIntent(text) {
@@ -1605,7 +1612,23 @@ function compileServicePurchaseTriggerPatterns() {
 }
 
 function getMessageText(message) {
-  return message.content?.text || message.content?.link?.text || message.message?.text || message.text || "";
+  return (
+    message.content?.text ||
+    message.content?.link?.text ||
+    message.message?.text ||
+    message.text ||
+    getMessageAttachmentSearchText(message) ||
+    ""
+  );
+}
+
+function getMessageAttachmentSearchText(message) {
+  const content = message.content || {};
+  if (content.video || message.type === "video") return "видео video";
+  if (content.image || message.type === "image") return "фото image";
+  if (content.voice || message.type === "voice") return "голос voice";
+  if (content.file || message.type === "file") return "файл file";
+  return "";
 }
 
 function loadQualifiedBuyingChatIds() {
@@ -1789,10 +1812,9 @@ function updateClientProfileLink(chat) {
 }
 
 function getChatPreviewText(chat) {
+  const lastMessageText = chat.last_message ? getMessageText(chat.last_message) : "";
   return (
-    chat.last_message?.content?.text ||
-    chat.last_message?.message?.text ||
-    chat.last_message?.text ||
+    lastMessageText ||
     chat.context?.value?.price_string ||
     "Нет текста"
   );
@@ -2228,6 +2250,7 @@ function getMessageTypeLabel(type) {
   const labels = {
     text: "текст",
     image: "фото",
+    video: "видео",
     voice: "голос",
     system: "системное",
     link: "ссылка",
@@ -2276,6 +2299,28 @@ function appendMessageContent(container, message) {
     return;
   }
 
+  if (content.video) {
+    const videoUrl = pickVideoUrl(content.video);
+    if (videoUrl) {
+      const video = document.createElement("video");
+      video.className = "message-video";
+      video.src = videoUrl;
+      video.controls = true;
+      video.preload = "metadata";
+      video.textContent = "Видео недоступно в этом браузере";
+
+      const posterUrl = pickVideoPosterUrl(content.video);
+      if (posterUrl) {
+        video.poster = posterUrl;
+      }
+
+      container.append(video);
+      return;
+    }
+    container.textContent = "Видео";
+    return;
+  }
+
   if (content.link?.url) {
     const link = document.createElement("a");
     link.href = content.link.url;
@@ -2301,6 +2346,44 @@ function pickImageUrl(image) {
     Object.values(sizes).find((value) => typeof value === "string") ||
     ""
   );
+}
+
+function pickVideoUrl(video) {
+  if (typeof video === "string") return video;
+  if (!video || typeof video !== "object") return "";
+  const candidates = [
+    video.url,
+    video.video_url,
+    video.file_url,
+    video.download_url,
+    video.href,
+    video.src,
+    video.player_url,
+    video.mp4,
+    video.files?.mp4,
+    video.files?.url,
+    video.sources?.mp4,
+    ...(Array.isArray(video.sources) ? video.sources : []),
+  ];
+  return candidates.map(pickUrlValue).find(Boolean) || "";
+}
+
+function pickVideoPosterUrl(video) {
+  if (!video || typeof video !== "object") return "";
+  return (
+    pickImageUrl(video.preview) ||
+    pickImageUrl(video.preview_image) ||
+    pickImageUrl(video.thumbnail) ||
+    pickImageUrl(video.cover) ||
+    pickImageUrl(video.image) ||
+    ""
+  );
+}
+
+function pickUrlValue(value) {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return "";
+  return value.url || value.href || value.src || "";
 }
 
 function cleanSystemText(text) {

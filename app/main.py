@@ -14,9 +14,12 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from app.ai_client import FallbackAIClient
 from app.assistant import SalesAssistant, order_messages
 from app.avito_client import AvitoClient, AvitoConfigError
+from app.codex_app_server_client import CodexAppServerClient, CodexAppServerConfigError
 from app.config import get_settings
+from app.config import Settings
 from app.deepseek_client import DeepSeekClient, DeepSeekConfigError
 
 
@@ -130,17 +133,19 @@ async def config_status() -> dict[str, object]:
 
 @app.post("/api/ai/ping")
 async def ai_ping() -> dict[str, object]:
-    client = DeepSeekClient(get_settings())
+    settings = get_settings()
+    client = create_ai_client(settings)
     try:
         reply = await client.ping()
     except Exception as exc:
         raise _to_http_error(exc) from exc
-    return {"ok": reply.lower() == "ok", "reply": reply}
+    return {"ok": reply.lower() == "ok", "provider": settings.ai_provider, "reply": reply}
 
 
 @app.post("/api/ai/draft-reply")
 async def ai_draft_reply(request: DraftReplyRequest) -> dict[str, Any]:
-    assistant = SalesAssistant(DeepSeekClient(get_settings()))
+    settings = get_settings()
+    assistant = SalesAssistant(create_ai_client(settings))
     try:
         draft = await assistant.draft_reply(request.chat, request.messages)
     except Exception as exc:
@@ -260,7 +265,7 @@ async def avito_set_chat_bot_control(chat_id: str, request: ChatBotControlReques
 async def avito_ai_draft(chat_id: str) -> dict[str, Any]:
     settings = get_settings()
     avito = AvitoClient(settings)
-    assistant = SalesAssistant(DeepSeekClient(settings))
+    assistant = SalesAssistant(create_ai_client(settings))
     try:
         chat = await avito.get_chat(chat_id)
         messages = await avito.get_messages(chat_id, limit=30)
@@ -317,7 +322,7 @@ async def bot_autoreply_status() -> dict[str, Any]:
 async def _process_unread(limit: int = 20) -> dict[str, Any]:
     settings = get_settings()
     avito = AvitoClient(settings)
-    assistant = SalesAssistant(DeepSeekClient(settings))
+    assistant = SalesAssistant(create_ai_client(settings))
     results: list[ProcessedUnreadChat] = []
     pending = _load_autoreply_pending()
 
@@ -654,7 +659,7 @@ def _chat_item_context(chat: dict[str, Any]) -> dict[str, Any]:
 
 
 def _to_http_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, (AvitoConfigError, DeepSeekConfigError)):
+    if isinstance(exc, (AvitoConfigError, DeepSeekConfigError, CodexAppServerConfigError)):
         return HTTPException(status_code=400, detail=str(exc))
     if isinstance(exc, httpx.HTTPStatusError):
         detail: object
@@ -666,6 +671,16 @@ def _to_http_error(exc: Exception) -> HTTPException:
     if isinstance(exc, httpx.RequestError):
         return HTTPException(status_code=502, detail=f"Avito request failed: {exc.__class__.__name__}")
     return HTTPException(status_code=500, detail=exc.__class__.__name__)
+
+
+def create_ai_client(settings: Settings) -> DeepSeekClient | CodexAppServerClient | FallbackAIClient:
+    provider = settings.ai_provider.strip().lower()
+    if provider == "deepseek":
+        fallback = CodexAppServerClient(settings) if settings.codex_app_server_base_url else None
+        return FallbackAIClient(DeepSeekClient(settings), fallback)
+    if provider == "codex_app_server":
+        return CodexAppServerClient(settings)
+    raise DeepSeekConfigError(f"Unsupported AI_PROVIDER: {settings.ai_provider}")
 
 
 def _latest_non_system_message(messages_response: dict[str, Any]) -> dict[str, Any] | None:

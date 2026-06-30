@@ -20,7 +20,8 @@ class SalesAssistant:
 
     async def draft_reply(self, chat: dict[str, Any], messages_response: dict[str, Any]) -> AssistantDraft:
         messages = order_messages(list(messages_response.get("messages", [])))
-        handoff_reason = detect_handoff(messages)
+        admin_mode = detect_admin_command(messages) is not None
+        handoff_reason = None if admin_mode else detect_handoff(messages)
         if handoff_reason:
             return AssistantDraft(
                 text=(
@@ -31,8 +32,9 @@ class SalesAssistant:
                 handoff_reason=handoff_reason,
             )
 
-        prompt_messages = build_prompt(chat, messages)
+        prompt_messages = build_prompt(chat, messages, admin_mode=admin_mode)
         text = await self._deepseek.create_chat_completion(prompt_messages)
+        text = bot_rules.strip_seller_name_address(text, client_name=client_display_name(chat))
         text = bot_rules.strip_repeated_greeting(text, seller_already_greeted=seller_already_greeted(messages))
         return AssistantDraft(text=text, handoff_required=False, handoff_reason=None)
 
@@ -48,11 +50,24 @@ def detect_handoff(messages: list[dict[str, Any]]) -> str | None:
     return None
 
 
-def build_prompt(chat: dict[str, Any], messages: list[dict[str, Any]]) -> list[ChatMessage]:
+def detect_admin_command(messages: list[dict[str, Any]]) -> str | None:
+    for message in reversed(order_messages(messages)):
+        if message.get("direction") != "in" or message.get("type") == "system":
+            continue
+        if bot_rules.ADMIN_CODE in _message_text(message):
+            return bot_rules.ADMIN_COMMAND_REASON
+        return None
+    return None
+
+
+def build_prompt(chat: dict[str, Any], messages: list[dict[str, Any]], *, admin_mode: bool | None = None) -> list[ChatMessage]:
+    if admin_mode is None:
+        admin_mode = detect_admin_command(messages) is not None
     item = (chat.get("context") or {}).get("value") or {}
     title = item.get("title") or "unknown item"
     price = item.get("price_string") or "unknown price"
     url = item.get("url") or ""
+    client_name = client_display_name(chat) or "unknown"
 
     transcript = []
     for message in order_messages(messages)[-12:]:
@@ -66,7 +81,10 @@ def build_prompt(chat: dict[str, Any], messages: list[dict[str, Any]]) -> list[C
     return [
         ChatMessage(
             role="system",
-            content=bot_rules.build_system_prompt(seller_already_greeted=seller_already_greeted(messages)),
+            content=bot_rules.build_system_prompt(
+                seller_already_greeted=seller_already_greeted(messages),
+                admin_mode=admin_mode,
+            ),
         ),
         ChatMessage(
             role="user",
@@ -74,6 +92,7 @@ def build_prompt(chat: dict[str, Any], messages: list[dict[str, Any]]) -> list[C
                 f"Avito item: {title}\n"
                 f"Price: {price}\n"
                 f"URL: {url}\n\n"
+                f"Client Avito account name: {client_name}\n\n"
                 "Conversation:\n"
                 + "\n".join(transcript)
                 + "\n\nDraft the next seller reply."
@@ -93,6 +112,41 @@ def seller_already_greeted(messages: list[dict[str, Any]]) -> bool:
     return False
 
 
+def client_display_name(chat: dict[str, Any]) -> str:
+    item = (chat.get("context") or {}).get("value") or {}
+    seller_id = _string_id(item.get("user_id") or chat.get("seller_id") or chat.get("owner_id") or chat.get("account_id"))
+
+    for user in _chat_users(chat):
+        user_id = _string_id(user.get("id") or user.get("user_id") or user.get("author_id"))
+        if seller_id and user_id == seller_id:
+            continue
+        name = _clean_name(user.get("name") or user.get("display_name") or user.get("title"))
+        if name:
+            return name
+
+    return ""
+
+
+def _chat_users(chat: dict[str, Any]) -> list[dict[str, Any]]:
+    users: list[dict[str, Any]] = []
+    for source in (chat.get("users"), chat.get("participants"), chat.get("members"), (chat.get("context") or {}).get("users")):
+        if isinstance(source, list):
+            users.extend(user for user in source if isinstance(user, dict))
+    return users
+
+
+def _clean_name(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    return " ".join(value.split())
+
+
+def _string_id(value: object) -> str:
+    if value is None:
+        return ""
+    return str(value)
+
+
 def _message_text(message: dict[str, Any]) -> str:
     content = message.get("content") or {}
     if isinstance(content.get("text"), str):
@@ -101,6 +155,8 @@ def _message_text(message: dict[str, Any]) -> str:
         return content["link"]["text"]
     if "image" in content:
         return "[image]"
+    if "video" in content:
+        return "[video]"
     if "voice" in content:
         return "[voice]"
     return ""

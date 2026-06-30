@@ -1,0 +1,19 @@
+services:
+  avito-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-8000}:8000"
+    volumes:
+      - ./.codex-runtime:/app/.codex-runtime
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import json, urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3); raise SystemExit(0 if json.load(r).get('status') == 'ok' else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

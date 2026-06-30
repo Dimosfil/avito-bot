@@ -60,7 +60,7 @@ function Stop-PreviousRelease {
             continue
         }
         Write-Host "Stopping previous release process $id"
-        Stop-Process -Id $process.Id -Force
+        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
     }
     Start-Sleep -Seconds 1
 }
@@ -90,6 +90,19 @@ function Copy-ReleaseFiles {
         Write-Host "Copied root .env into release without printing secrets because no previous production .env exists."
     } else {
         Write-Warning "No root .env found. Release will rely on user/system environment variables."
+    }
+
+    $releaseRuntimePath = if ($BackupPath) { Join-Path $BackupPath ".codex-runtime" } else { "" }
+    $rootRuntimePath = Join-Path $Root ".codex-runtime"
+    $stagingRuntimePath = Join-Path $StagingPath ".codex-runtime"
+    if ($releaseRuntimePath -and (Test-Path -LiteralPath $releaseRuntimePath)) {
+        Copy-Item -LiteralPath $releaseRuntimePath -Destination $stagingRuntimePath -Recurse
+        Write-Host "Preserved production runtime state from previous release."
+    } elseif (Test-Path -LiteralPath $rootRuntimePath) {
+        Copy-Item -LiteralPath $rootRuntimePath -Destination $stagingRuntimePath -Recurse
+        Write-Host "Seeded release runtime state from development checkout because no previous production runtime exists."
+    } else {
+        Write-Warning "No runtime state found. Server-side autoreply and manager takeover state will start from defaults."
     }
 }
 
@@ -194,7 +207,7 @@ try {
         Pop-Location
     }
 
-    Move-Item -LiteralPath $StagingPath -Destination $ReleasePath
+    Rename-Item -LiteralPath $StagingPath -NewName (Split-Path -Leaf $ReleasePath)
 
     if (-not $SkipStart) {
         Start-Release

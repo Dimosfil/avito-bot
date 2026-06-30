@@ -12,7 +12,7 @@ stack facts, commands, runtime assumptions, and operational notes here.
 ## Summary
 
 - Primary stack: Python, FastAPI, static HTML/CSS/JavaScript, Avito HTTP API,
-  DeepSeek chat completions API.
+  configurable AI chat completion providers.
 - Runtime model: local ASGI web app served by Uvicorn.
 - Current confidence: verified from `pyproject.toml`, source files, and tests.
 
@@ -24,11 +24,11 @@ stack facts, commands, runtime assumptions, and operational notes here.
 | Frontend | Static HTML/CSS/JavaScript | `app/static/` | No frontend build step yet. |
 | Backend/API | FastAPI | `app/main.py`, `pyproject.toml` | Serves API and static UI. |
 | Avito client | httpx | `app/avito_client.py`, `pyproject.toml` | Uses official Avito HTTP endpoints. |
-| AI provider client | httpx | `app/deepseek_client.py`, `app/assistant.py`, `pyproject.toml` | Calls DeepSeek chat completions for short sales-assistant drafts. |
+| AI provider clients | httpx | `app/deepseek_client.py`, `app/codex_app_server_client.py`, `app/ai_client.py`, `app/assistant.py`, `pyproject.toml` | DeepSeek is the primary provider for short sales-assistant drafts; Codex App Server is an optional OpenAI-compatible fallback. |
 | Data/storage | In-memory webhook event list only | `app/main.py` | SQLite domain storage not implemented yet. |
 | Build/package | uv | `pyproject.toml`, `uv.lock` | `uv sync` creates `.venv`. |
 | Test/quality | pytest, compileall | `tests/`, `pyproject.toml` | Initial smoke tests exist. |
-| Deployment/runtime | Uvicorn local dev server and local `.release/` runtime | README.md, `tools/AGENT_RUNBOOK.md`, `tools/deploy-local-release.ps1` | Local production deploy copies tested source into ignored `.release/` and runs without `--reload`. |
+| Deployment/runtime | Uvicorn local dev server, local `.release/` runtime, and Docker Compose host runtime | README.md, `tools/AGENT_RUNBOOK.md`, `tools/deploy-local-release.ps1`, `Dockerfile`, `docker-compose.yml` | Local production deploy copies tested source into ignored `.release/` and runs without `--reload`; Docker runs the app in one container and bind-mounts `.codex-runtime/`. |
 
 ## Commands
 
@@ -39,13 +39,15 @@ stack facts, commands, runtime assumptions, and operational notes here.
 | Test | `uv run pytest` | README.md |
 | Compile check | `uv run python -m compileall app tests` | README.md |
 | Local release deploy | `.\tools\deploy-local-release.ps1` | README.md, `tools/AGENT_RUNBOOK.md` |
+| Host Docker run | `docker compose up -d --build` | README.md, `tools/AGENT_RUNBOOK.md`, `docker-compose.yml` |
 
 ## External Services
 
 | Service | Role | Evidence | Boundary |
 | --- | --- | --- | --- |
 | Avito API | First production channel for chats/messages | `tools/project-memory/specs/integration-contracts/avito-api.md` | Credentials in env only; API behind Avito client/adapter. |
-| DeepSeek API | First AI draft provider for sales replies | `tools/project-memory/specs/integration-contracts/connected-projects.md`, `app/deepseek_client.py` | API key in env only; provider behind `DeepSeekClient` and `SalesAssistant`. |
+| DeepSeek API | Default AI draft provider for sales replies | `tools/project-memory/specs/integration-contracts/connected-projects.md`, `app/deepseek_client.py` | API key in env only; selected with `AI_PROVIDER=deepseek`. |
+| Codex App Server | Optional local/remote AI draft fallback | `tools/project-memory/specs/integration-contracts/connected-projects.md`, `app/codex_app_server_client.py`, `app/ai_client.py` | OpenAI-compatible chat-completions endpoint used as a fallback when DeepSeek is primary and `CODEX_APP_SERVER_BASE_URL` is configured; can still be selected directly with `AI_PROVIDER=codex_app_server`. |
 
 ## Gaps
 
@@ -53,6 +55,6 @@ stack facts, commands, runtime assumptions, and operational notes here.
 - Platform-neutral local/test channel adapter is not implemented.
 - Final persisted manager notification and handoff workflow is not implemented.
 - Public HTTPS webhook hosting is not configured.
-- External production hosting is not configured; current production runtime is
-  the project-local `.release/` folder.
+- External production hosting is not configured; current production runtimes are
+  the project-local `.release/` folder and the host Docker Compose service.
 - Real Avito Messenger permission must be verified with credentials.

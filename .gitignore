@@ -9,6 +9,7 @@ tools/project-memory/embedding-cache/
 tools/project-memory/semantic-corpus*.jsonl
 tools/summary/*.tmp
 .codex-runtime/*.json
+.codex-runtime/*.pid
 .codex-runtime/*.tmp
 tools/deploy/ftp.local.json
 tools/deploy/prod.local.json

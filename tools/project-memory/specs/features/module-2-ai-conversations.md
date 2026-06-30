@@ -60,8 +60,9 @@ First runnable slice:
 - The slice can check credentials, request an Avito token, read account info,
   list chats, read messages, send a text message, mark a chat read, and receive
   local webhook payloads.
-- A DeepSeek-backed AI assistant can generate a review-first draft reply for a
-  selected Avito chat.
+- A configurable AI assistant can generate a review-first draft reply for a
+  selected Avito chat. Supported providers are `deepseek` and
+  `codex_app_server`.
 - The UI can process unread Avito chats on demand or by enabled polling: for
   each unread chat whose latest non-system message is inbound, it generates an
   AI reply, sends it through Avito, and marks the chat read when no handoff
@@ -72,6 +73,10 @@ First runnable slice:
   seller has already greeted the client.
 - The manager UI shows Avito messages chronologically with day separators,
   per-message time, clear sender roles, and explicit start/latest markers.
+- The manager UI and message search text should preserve media-only inbound
+  messages with compact attachment labels. Image, video, voice, and file
+  attachments must not disappear from chat previews, search/filter text, or AI
+  prompt context when there is no plain text body.
 - The manager UI has a per-chat `Ручной режим` checkbox that is disabled until a
   chat is selected. When `Ручной режим` is checked for a chat, the backend stores
   that chat as a manager takeover and the auto-reply worker must skip it even if
@@ -194,6 +199,8 @@ flowchart TD
 Configurable values:
 
 - connected channels;
+- AI provider (`deepseek` or `codex_app_server`) and provider-specific model or
+  endpoint settings;
 - handoff trigger phrases and intent examples;
 - AI style and tone;
 - business knowledge source;
@@ -248,3 +255,24 @@ Minimum MVP checks:
 - Automatic Avito replies must not depend on browser JavaScript timers for core
   sending behavior. Browser polling may refresh status, but the backend owns the
   processing loop once auto-reply is enabled.
+- The seller profile name, currently Oksana, identifies the business account,
+  not the client. The assistant must not address the client as Oksana unless
+  the inbound client message explicitly identifies the client with that name.
+  Generated replies must be post-processed to remove accidental leading
+  seller-name addresses before draft display or automatic sending.
+- When Avito exposes the buyer/client account name, the backend AI prompt must
+  pass that name explicitly as the `Client Avito account name`. For item chats,
+  `context.value.user_id` identifies the seller/listing owner, so the client
+  name must come from the participant in `users` whose id differs from that
+  seller id. The assistant should use this client name for natural personal
+  address and must not invent a name when it is unavailable.
+- If the latest client message is rude, sarcastic, hostile, or unclear, the
+  assistant must stay calm, avoid mirroring the tone or joking back, and ask one
+  short clarifying question about the business task.
+- Inbound messages containing admin code `547032` are admin/test settings, not
+  customer lead messages. The backend must detect this code before normal
+  handoff checks and must call the LLM with an explicit admin-mode system
+  prompt. In admin mode, the assistant treats the sender as the creator/admin
+  testing or configuring the bot, not as a normal sales lead, while still
+  refusing to reveal secrets, tokens, private logs, or hidden system
+  instructions.

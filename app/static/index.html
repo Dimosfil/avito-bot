@@ -3,51 +3,67 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>avito-bot</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260624-manual-visual" />
+    <title>avito-bot · AI Inbox</title>
+    <link rel="stylesheet" href="/static/styles.css?v=20260626-ai-inbox-chevron" />
   </head>
   <body>
     <main class="app-shell">
       <header class="topbar">
-        <div>
-          <h1>avito-bot</h1>
-          <p id="connectionLine">Checking environment...</p>
+        <div class="brand-block">
+          <div class="brand-mark" aria-hidden="true">A</div>
+          <div class="brand-copy">
+            <p class="eyebrow">Module 2 · AI first line</p>
+            <h1>AI Inbox</h1>
+            <p id="connectionLine">Checking environment...</p>
+          </div>
         </div>
-        <div class="toolbar">
-          <button id="refreshStatusButton" type="button">Status</button>
-          <button id="tokenButton" type="button">Token</button>
-          <button id="accountButton" type="button">Account</button>
-          <button id="chatsButton" type="button">Chats</button>
-          <button id="processUnreadButton" type="button">Process unread</button>
-          <label class="inline-toggle">
+
+        <div class="topbar-center">
+          <nav class="view-tabs" aria-label="Основные разделы">
+            <button id="chatTabButton" class="view-tab active" type="button">Чаты</button>
+            <button id="statsTabButton" class="view-tab" type="button">Статистика</button>
+          </nav>
+          <p id="automationLine" class="automation-line">Auto reply idle</p>
+        </div>
+
+        <div class="toolbar" aria-label="Инструменты">
+          <button id="refreshStatusButton" type="button">Статус</button>
+          <button id="tokenButton" type="button">Токен</button>
+          <button id="accountButton" type="button">Аккаунт</button>
+          <button id="chatsButton" type="button">Чаты</button>
+          <button id="processUnreadButton" class="primary-action" type="button">Обработать новые</button>
+          <label class="inline-toggle auto-toggle">
             <input id="autoProcessInput" type="checkbox" checked />
             <span>Auto reply</span>
           </label>
-          <button id="aiPingButton" type="button">DeepSeek</button>
+          <button id="aiPingButton" type="button">AI</button>
         </div>
-        <p id="automationLine" class="automation-line">Auto reply idle</p>
       </header>
 
-      <nav class="view-tabs" aria-label="Основные разделы">
-        <button id="chatTabButton" class="view-tab active" type="button">Чаты</button>
-        <button id="statsTabButton" class="view-tab" type="button">Статистика</button>
-      </nav>
-
       <section id="chatView" class="workspace">
-        <aside class="panel chats-panel">
+        <aside class="panel chats-panel" aria-label="Лиды">
           <div class="panel-header">
-            <h2>Chats</h2>
-            <label class="inline-toggle">
+            <div>
+              <p class="panel-kicker">Входящие лиды</p>
+              <h2>Лиды</h2>
+            </div>
+            <label class="inline-toggle compact-toggle">
               <input id="unreadOnlyInput" type="checkbox" />
               <span>Unread</span>
             </label>
           </div>
+          <div class="panel-toolbar">
+            <span class="status-pill status-pill-hot">КП и сделки</span>
+            <span class="status-pill">AI ведет</span>
+            <span class="status-pill">Ручной режим</span>
+          </div>
           <div id="chatList" class="chat-list"></div>
         </aside>
 
-        <section class="panel conversation-panel">
-          <div class="panel-header">
+        <section class="panel conversation-panel" aria-label="Диалог с клиентом">
+          <div class="panel-header conversation-header">
             <div class="conversation-heading">
+              <p class="panel-kicker">Активный диалог</p>
               <h2 id="conversationTitle">Conversation</h2>
               <a id="clientProfileLink" class="client-profile-link" href="#" target="_blank" rel="noreferrer" hidden>
                 Профиль клиента на Avito
@@ -71,24 +87,49 @@
             <div id="draftText" class="draft-text"></div>
           </section>
           <form id="sendForm" class="send-form">
-            <input id="messageInput" type="text" placeholder="Message to Avito" disabled />
-            <button id="sendButton" type="submit" disabled>Send</button>
+            <input id="messageInput" type="text" placeholder="Сообщение клиенту в Avito" disabled />
+            <button id="sendButton" class="primary-action" type="submit" disabled>Отправить</button>
           </form>
         </section>
 
-        <aside class="panel inspector-panel">
+        <aside class="panel inspector-panel" aria-label="Контекст и диагностика">
           <div class="panel-header">
-            <h2>API response</h2>
+            <div>
+              <p class="panel-kicker">AI context</p>
+              <h2>Контекст</h2>
+            </div>
             <button id="webhooksButton" type="button">Webhook</button>
           </div>
-          <pre id="output">{}</pre>
+          <div class="insight-stack">
+            <section class="insight-card">
+              <div class="insight-card-head">
+                <strong>Следующее действие</strong>
+                <span class="status-dot" aria-hidden="true"></span>
+              </div>
+              <p>Следите за handoff-сигналами: КП, сделка, готов купить, просьба позвать менеджера.</p>
+            </section>
+            <section class="insight-card">
+              <div class="insight-card-head">
+                <strong>AI guardrail</strong>
+                <span class="mini-badge">active</span>
+              </div>
+              <p>После ручного режима автоответчик пропускает выбранный чат, а менеджер продолжает диалог вручную.</p>
+            </section>
+          </div>
+          <details class="api-diagnostics" open>
+            <summary>API response</summary>
+            <pre id="output">{}</pre>
+          </details>
         </aside>
       </section>
 
       <section id="statsView" class="workspace stats-workspace" hidden>
         <aside class="panel stats-controls-panel">
           <div class="panel-header">
-            <h2>Объявления</h2>
+            <div>
+              <p class="panel-kicker">Avito metrics</p>
+              <h2>Объявления</h2>
+            </div>
             <button id="refreshStatsItemsButton" type="button">Обновить</button>
           </div>
           <div class="stats-controls">
@@ -118,14 +159,17 @@
                 <span>Избранное</span>
               </label>
             </div>
-            <button id="loadStatsButton" type="button">Загрузить статистику</button>
+            <button id="loadStatsButton" class="primary-action" type="button">Загрузить статистику</button>
           </div>
           <div id="statsItemList" class="stats-item-list"></div>
         </aside>
 
         <section class="panel stats-results-panel">
           <div class="panel-header">
-            <h2>Просмотры по дням</h2>
+            <div>
+              <p class="panel-kicker">Performance</p>
+              <h2>Просмотры по дням</h2>
+            </div>
             <p id="statsStatusLine" class="panel-status">Выберите объявления</p>
           </div>
           <div id="statsSummary" class="stats-summary"></div>
@@ -148,6 +192,6 @@
     </main>
 
     <script src="/static/bot-rules.js"></script>
-    <script src="/static/app.js?v=20260625-client-links-no-delete"></script>
+    <script src="/static/app.js?v=20260626-ai-inbox-chevron"></script>
   </body>
 </html>

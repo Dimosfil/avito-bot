@@ -75,6 +75,33 @@ Access and privacy boundary:
 
 Current decision:
 
-- Use DeepSeek for the first AI draft provider.
-- Keep provider code behind `app/deepseek_client.py` and business prompt logic
-  in `app/assistant.py` so another model provider can replace it later.
+- Use `AI_PROVIDER=deepseek` as the default AI draft provider.
+- Keep provider code behind provider clients and factory selection in
+  `app/main.py`; keep business prompt logic in `app/assistant.py`.
+
+## Codex App Server
+
+Role: optional fallback AI provider for review-first and automatic sales
+replies in Module 2 when DeepSeek is primary and a Codex-compatible local or
+remote app server is available.
+
+Data/API contract:
+
+- Primary production policy is `AI_PROVIDER=deepseek`; when
+  `CODEX_APP_SERVER_BASE_URL` is configured, Codex App Server acts as the
+  fallback if DeepSeek fails.
+- Direct selection with `AI_PROVIDER=codex_app_server` remains available for
+  diagnostics or explicitly Codex-backed runs.
+- Configure `CODEX_APP_SERVER_BASE_URL` to an OpenAI-compatible API base that
+  exposes `POST /chat/completions`.
+- Optional settings: `CODEX_APP_SERVER_API_KEY` and
+  `CODEX_APP_SERVER_MODEL`.
+- The app sends the same `messages`, `temperature`, `max_tokens`, and
+  non-streaming chat-completion payload shape used by other providers.
+
+Access and privacy boundary:
+
+- Never commit `CODEX_APP_SERVER_API_KEY`.
+- Treat customer conversations sent to the Codex App Server as private lead
+  data; only the current chat context needed for a reply should be sent.
+- Do not store raw Codex App Server prompts or responses in project memory.

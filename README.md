@@ -70,6 +70,46 @@ dependencies, starts Uvicorn without `--reload`, and verifies health at:
 http://127.0.0.1:8010
 ```
 
+## Host Docker Runtime
+
+The project root can also run as a single Docker service. The container starts
+FastAPI/Uvicorn, serves the static manager UI, and keeps bot runtime state in a
+mounted `.codex-runtime/` folder.
+
+Prepare host environment:
+
+```powershell
+Copy-Item .\env.docker.example .\.env
+```
+
+Fill `.env` with Avito credentials and the selected AI provider credentials.
+Keep `HOST_PORT=8000` unless the host already uses that port.
+
+Build and start:
+
+```powershell
+docker compose up -d --build
+```
+
+Open:
+
+```text
+http://127.0.0.1:8000
+```
+
+Useful operations:
+
+```powershell
+docker compose ps
+docker compose logs -f avito-bot
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/health"
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/config/status"
+docker compose down
+```
+
+Do not delete `.codex-runtime/` on a live host. It stores server-side autoreply,
+pending autoreply, and manager takeover state.
+
 MVP target:
 
 - accept incoming customer messages from supported channels or local test
@@ -105,7 +145,8 @@ The current hello-world app can:
 - request chats through Messenger API;
 - read and send messages for a selected chat when API permissions allow it;
 - request per-listing Avito item statistics for views, contacts, and favorites;
-- generate a DeepSeek AI draft reply for a selected chat;
+- generate an AI draft reply for a selected chat through the configured
+  provider: `deepseek` or `codex_app_server`;
 - process unread Avito chats on demand or through the UI `Auto reply` polling
   switch; when enabled, a backend worker checks Avito independently of the
   browser tab, reads latest messages, generates an AI reply, sends it when no

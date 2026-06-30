@@ -1,0 +1,1099 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>avito-bot admin UI drafts</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f3ee;
+        --ink: #151816;
+        --muted: #65706b;
+        --line: #d9ded8;
+        --paper: #fffdf8;
+        --soft: #eef4ef;
+        --green: #1d7a55;
+        --blue: #2364aa;
+        --red: #c4473d;
+        --yellow: #f2b84b;
+        --violet: #6a5acd;
+        --shadow: 0 18px 50px rgba(24, 30, 27, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        background:
+          linear-gradient(90deg, rgba(21, 24, 22, 0.04) 1px, transparent 1px),
+          linear-gradient(0deg, rgba(21, 24, 22, 0.04) 1px, transparent 1px),
+          var(--bg);
+        background-size: 36px 36px;
+        color: var(--ink);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      .page {
+        width: min(1440px, 100%);
+        margin: 0 auto;
+        padding: 28px;
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: end;
+        gap: 28px;
+        margin-bottom: 24px;
+      }
+
+      .eyebrow {
+        margin: 0 0 8px;
+        color: var(--green);
+        font-size: 13px;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        max-width: 820px;
+        margin-bottom: 10px;
+        font-size: clamp(34px, 5vw, 72px);
+        line-height: 0.95;
+        letter-spacing: 0;
+      }
+
+      .hero p {
+        max-width: 820px;
+        margin-bottom: 0;
+        color: var(--muted);
+        font-size: 17px;
+        line-height: 1.55;
+      }
+
+      .hero-metrics {
+        display: grid;
+        grid-template-columns: repeat(3, 120px);
+        gap: 10px;
+      }
+
+      .metric {
+        min-height: 86px;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        box-shadow: var(--shadow);
+      }
+
+      .metric strong {
+        display: block;
+        margin-bottom: 4px;
+        font-size: 24px;
+      }
+
+      .metric span {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.25;
+      }
+
+      .board {
+        display: grid;
+        gap: 24px;
+      }
+
+      .draft {
+        display: grid;
+        grid-template-columns: 330px minmax(0, 1fr);
+        gap: 18px;
+        align-items: stretch;
+      }
+
+      .brief,
+      .mock {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 253, 248, 0.92);
+        box-shadow: var(--shadow);
+      }
+
+      .brief {
+        padding: 20px;
+      }
+
+      .brief h2 {
+        margin-bottom: 8px;
+        font-size: 22px;
+      }
+
+      .brief p {
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+        margin: 16px 0;
+      }
+
+      .tag {
+        padding: 5px 8px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: #ffffff;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .brief ul {
+        display: grid;
+        gap: 8px;
+        margin: 0;
+        padding-left: 18px;
+        color: #344039;
+        line-height: 1.45;
+      }
+
+      .mock {
+        min-height: 590px;
+        overflow: hidden;
+      }
+
+      .shell {
+        height: 100%;
+        min-height: 590px;
+        display: grid;
+        background: #f9faf7;
+      }
+
+      .top {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 14px;
+        min-height: 70px;
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.78);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+      }
+
+      .mark {
+        width: 40px;
+        height: 40px;
+        display: grid;
+        place-items: center;
+        border-radius: 8px;
+        background: var(--ink);
+        color: #fff;
+        font-weight: 900;
+      }
+
+      .brand strong,
+      .row strong {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .brand span,
+      .row span,
+      .tiny {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      .icon-btn,
+      .primary,
+      .ghost,
+      .pill {
+        min-height: 34px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--ink);
+        font-weight: 800;
+      }
+
+      .icon-btn {
+        width: 36px;
+        padding: 0;
+      }
+
+      .primary {
+        padding: 0 12px;
+        border-color: var(--green);
+        background: var(--green);
+        color: #fff;
+      }
+
+      .ghost {
+        padding: 0 12px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 28px;
+        padding: 0 9px;
+        border-radius: 999px;
+        font-size: 12px;
+      }
+
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--green);
+      }
+
+      .layout-a {
+        grid-template-rows: auto 1fr;
+      }
+
+      .grid-a {
+        display: grid;
+        grid-template-columns: 280px minmax(360px, 1fr) 300px;
+        min-height: 0;
+      }
+
+      .rail,
+      .center,
+      .side {
+        min-width: 0;
+        min-height: 0;
+        border-right: 1px solid var(--line);
+      }
+
+      .side {
+        border-right: 0;
+      }
+
+      .section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .section-head h3 {
+        margin: 0;
+        font-size: 15px;
+      }
+
+      .filter {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .filter input {
+        width: 100%;
+        min-height: 34px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0 10px;
+        background: #fff;
+      }
+
+      .lead-list {
+        display: grid;
+        gap: 8px;
+        padding: 12px;
+      }
+
+      .row {
+        display: grid;
+        gap: 6px;
+        padding: 12px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .row.active {
+        border-color: #9ac8ad;
+        background: #edf7f0;
+      }
+
+      .row-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .badge {
+        flex: 0 0 auto;
+        padding: 3px 7px;
+        border-radius: 999px;
+        background: #e7eef8;
+        color: var(--blue);
+        font-size: 11px;
+        font-weight: 900;
+      }
+
+      .badge.hot {
+        background: #ffe9d7;
+        color: #9a4200;
+      }
+
+      .badge.manual {
+        background: #e6f4ec;
+        color: var(--green);
+      }
+
+      .chat {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        min-height: 100%;
+      }
+
+      .chat-head {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 12px;
+        padding: 16px 18px;
+        border-bottom: 1px solid var(--line);
+        background: #fff;
+      }
+
+      .timeline {
+        display: grid;
+        align-content: start;
+        gap: 10px;
+        padding: 18px;
+        overflow: hidden;
+      }
+
+      .bubble {
+        max-width: 72%;
+        padding: 11px 13px;
+        border-radius: 8px;
+        background: #edf0ee;
+        line-height: 1.35;
+      }
+
+      .bubble.out {
+        justify-self: end;
+        background: #dff1eb;
+      }
+
+      .bubble.ai {
+        border: 1px dashed #8cb7a1;
+        background: #f5fbf6;
+      }
+
+      .composer {
+        display: grid;
+        grid-template-columns: 1fr auto auto;
+        gap: 8px;
+        padding: 14px;
+        border-top: 1px solid var(--line);
+        background: #fff;
+      }
+
+      .composer input {
+        min-height: 38px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0 12px;
+      }
+
+      .stack {
+        display: grid;
+        gap: 12px;
+        padding: 14px;
+      }
+
+      .insight {
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .insight h3 {
+        margin-bottom: 7px;
+        font-size: 14px;
+      }
+
+      .progress {
+        height: 8px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #e8ece8;
+      }
+
+      .progress i {
+        display: block;
+        width: 68%;
+        height: 100%;
+        background: linear-gradient(90deg, var(--green), var(--yellow));
+      }
+
+      .layout-b {
+        grid-template-rows: auto 74px 1fr;
+      }
+
+      .kpi-strip {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        border-bottom: 1px solid var(--line);
+        background: #fff;
+      }
+
+      .kpi {
+        padding: 12px 16px;
+        border-right: 1px solid var(--line);
+      }
+
+      .kpi:last-child {
+        border-right: 0;
+      }
+
+      .kpi strong {
+        display: block;
+        margin-bottom: 2px;
+        font-size: 24px;
+      }
+
+      .kanban {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(160px, 1fr));
+        gap: 12px;
+        min-height: 0;
+        padding: 12px;
+        background: #f7f8f5;
+      }
+
+      .column {
+        min-width: 0;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.86);
+      }
+
+      .column h3 {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin: 0;
+        padding: 12px;
+        border-bottom: 1px solid var(--line);
+        font-size: 14px;
+      }
+
+      .cards {
+        display: grid;
+        gap: 10px;
+        padding: 10px;
+      }
+
+      .lead-card {
+        display: grid;
+        gap: 8px;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .score {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .score b {
+        color: var(--green);
+      }
+
+      .layout-c {
+        grid-template-columns: 76px 340px minmax(380px, 1fr);
+      }
+
+      .navrail {
+        display: grid;
+        align-content: start;
+        justify-items: center;
+        gap: 12px;
+        padding: 16px 10px;
+        border-right: 1px solid var(--line);
+        background: #111815;
+      }
+
+      .navrail .mark {
+        background: #fff;
+        color: #111815;
+      }
+
+      .navicon {
+        width: 42px;
+        height: 42px;
+        display: grid;
+        place-items: center;
+        border-radius: 8px;
+        color: #dbe5df;
+        background: rgba(255, 255, 255, 0.08);
+        font-weight: 900;
+      }
+
+      .navicon.active {
+        background: #dff1eb;
+        color: #111815;
+      }
+
+      .live-list {
+        border-right: 1px solid var(--line);
+        background: #fff;
+      }
+
+      .live-detail {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        min-width: 0;
+        background: #f6f7f4;
+      }
+
+      .detail-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 280px;
+        min-height: 0;
+      }
+
+      .mini-panel {
+        display: grid;
+        align-content: start;
+        gap: 10px;
+        padding: 14px;
+        border-left: 1px solid var(--line);
+        background: #fff;
+      }
+
+      .sketch {
+        margin-top: 14px;
+        padding: 14px;
+        border: 1px dashed #aeb8b1;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.58);
+        color: #48534d;
+        font-family: "Cascadia Mono", Consolas, monospace;
+        font-size: 12px;
+        line-height: 1.35;
+        white-space: pre;
+        overflow: auto;
+      }
+
+      .notes {
+        margin-top: 24px;
+        padding: 20px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        box-shadow: var(--shadow);
+      }
+
+      .notes h2 {
+        margin-bottom: 10px;
+      }
+
+      .notes-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .notes-grid div {
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      @media (max-width: 1180px) {
+        .draft,
+        .hero {
+          grid-template-columns: 1fr;
+        }
+
+        .hero-metrics,
+        .notes-grid {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .grid-a,
+        .layout-c,
+        .detail-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .rail,
+        .center,
+        .live-list,
+        .mini-panel {
+          border-right: 0;
+          border-left: 0;
+        }
+
+        .kanban {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 760px) {
+        .page {
+          padding: 16px;
+        }
+
+        .hero-metrics,
+        .notes-grid,
+        .kpi-strip,
+        .kanban {
+          grid-template-columns: 1fr;
+        }
+
+        .top,
+        .chat-head,
+        .composer {
+          grid-template-columns: 1fr;
+        }
+
+        .actions {
+          justify-content: flex-start;
+        }
+
+        .bubble {
+          max-width: 92%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Module 2 MVP · админка менеджера</p>
+          <h1>Три драфта для современной рабочей админки</h1>
+          <p>
+            Цель редизайна: не просто сделать аккуратнее, а превратить текущую
+            интеграционную консоль в рабочее место продаж: видно, где AI
+            отвечает сам, где нужен менеджер, какой клиент готов к сделке и что
+            делать следующим действием.
+          </p>
+        </div>
+        <div class="hero-metrics" aria-label="Фокус редизайна">
+          <div class="metric"><strong>1</strong><span>быстрый inbox для оператора</span></div>
+          <div class="metric"><strong>2</strong><span>воронка handoff и КП</span></div>
+          <div class="metric"><strong>3</strong><span>компактный live desk</span></div>
+        </div>
+      </section>
+
+      <section class="board">
+        <article class="draft">
+          <aside class="brief">
+            <h2>Драфт A · AI Inbox</h2>
+            <p>
+              Самый близкий к текущей реализации вариант: слева лиды по
+              объявлениям, в центре диалог, справа AI-инсайты и технические
+              детали. Хорош для первого внедрения без сильной перестройки JS.
+            </p>
+            <div class="tags">
+              <span class="tag">минимальный риск</span>
+              <span class="tag">быстро внедрить</span>
+              <span class="tag">фокус на handoff</span>
+            </div>
+            <ul>
+              <li>Топбар превращается в статус-центр: Avito, AI, автоответ.</li>
+              <li>Лиды получают явные статусы: AI ведет, нужен менеджер, ручной режим.</li>
+              <li>Правая колонка вместо сырого JSON показывает причину handoff, AI draft, SLA и payload по кнопке.</li>
+            </ul>
+            <div class="sketch">┌ Лиды ┐┌ Диалог + ручной режим ┐┌ AI-инсайты ┐
+│ КП   ││ клиент/AI/менеджер   ││ причина   │
+│ AI   ││ draft → отправить    ││ SLA       │
+│ ручн ││ composer             ││ JSON      │</div>
+          </aside>
+          <div class="mock">
+            <div class="shell layout-a">
+              <div class="top">
+                <div class="brand">
+                  <div class="mark">A</div>
+                  <div>
+                    <strong>avito-bot · AI Inbox</strong>
+                    <span>Avito подключен · Auto reply активен · DeepSeek отвечает</span>
+                  </div>
+                </div>
+                <div class="actions">
+                  <button class="ghost">Статус</button>
+                  <button class="ghost">Синхронизация</button>
+                  <span class="pill"><i class="dot"></i> AI online</span>
+                  <button class="primary">Обработать новые</button>
+                </div>
+              </div>
+              <div class="grid-a">
+                <aside class="rail">
+                  <div class="section-head">
+                    <h3>Лиды</h3>
+                    <span class="badge hot">7 urgent</span>
+                  </div>
+                  <div class="filter">
+                    <input value="КП, сделка, бюджет" aria-label="Фильтр лидов" />
+                    <button class="icon-btn" aria-label="Фильтры">≡</button>
+                  </div>
+                  <div class="lead-list">
+                    <div class="row active">
+                      <div class="row-top"><strong>Анна · дизайн проект</strong><span class="badge hot">КП</span></div>
+                      <span>“Хочу коммерческое предложение сегодня”</span>
+                    </div>
+                    <div class="row">
+                      <div class="row-top"><strong>Максим · ремонт</strong><span class="badge manual">ручн.</span></div>
+                      <span>Менеджер уже отвечает, AI выключен</span>
+                    </div>
+                    <div class="row">
+                      <div class="row-top"><strong>Ольга · замер</strong><span class="badge">AI</span></div>
+                      <span>AI уточняет город и сроки</span>
+                    </div>
+                    <div class="row">
+                      <div class="row-top"><strong>Клиент #8492</strong><span class="badge">новый</span></div>
+                      <span>Нужна консультация по цене</span>
+                    </div>
+                  </div>
+                </aside>
+                <section class="center chat">
+                  <div class="chat-head">
+                    <div>
+                      <strong>Анна · дизайн проект</strong>
+                      <div class="tiny">Handoff: запрос КП · последнее сообщение 2 мин назад</div>
+                    </div>
+                    <div class="actions">
+                      <button class="ghost">Профиль</button>
+                      <button class="primary">Взять вручную</button>
+                    </div>
+                  </div>
+                  <div class="timeline">
+                    <div class="bubble">Добрый день. Подскажите, сколько будет стоить проект?</div>
+                    <div class="bubble out ai">Здравствуйте! Уточню площадь и город, чтобы сориентировать по диапазону.</div>
+                    <div class="bubble">Площадь 74 м², Москва. Хочу КП и сроки.</div>
+                    <div class="bubble out">Анна, беру диалог. Сейчас подготовлю КП и вернусь с расчетом.</div>
+                  </div>
+                  <div class="composer">
+                    <input value="Согласовать КП и назначить звонок" aria-label="Сообщение" />
+                    <button class="ghost">AI draft</button>
+                    <button class="primary">Отправить</button>
+                  </div>
+                </section>
+                <aside class="side">
+                  <div class="section-head">
+                    <h3>Контекст</h3>
+                    <button class="icon-btn" aria-label="Payload">⌘</button>
+                  </div>
+                  <div class="stack">
+                    <div class="insight">
+                      <h3>Почему нужен менеджер</h3>
+                      <p class="tiny">Триггер: “хочу КП”. AI больше не отправляет автоответы.</p>
+                    </div>
+                    <div class="insight">
+                      <h3>Готовность к сделке</h3>
+                      <div class="progress"><i></i></div>
+                      <p class="tiny">Высокая: бюджет и город уже названы.</p>
+                    </div>
+                    <div class="insight">
+                      <h3>Следующий шаг</h3>
+                      <p class="tiny">Подготовить КП, запросить телефон, зафиксировать срок обратной связи.</p>
+                    </div>
+                  </div>
+                </aside>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="draft">
+          <aside class="brief">
+            <h2>Драфт B · Handoff Pipeline</h2>
+            <p>
+              Более “продажный” вариант: админка открывается не списком чатов,
+              а воронкой состояний. Подходит, когда менеджеру важнее видеть
+              приоритет и следующую задачу, чем читать все диалоги подряд.
+            </p>
+            <div class="tags">
+              <span class="tag">интереснее визуально</span>
+              <span class="tag">для руководителя</span>
+              <span class="tag">воронка</span>
+            </div>
+            <ul>
+              <li>Колонки соответствуют состояниям: новые, AI ведет, нужен менеджер, ручной режим.</li>
+              <li>Карточка показывает источник, объявление, интент, оценку срочности и быстрые действия.</li>
+              <li>Диалог открывается в drawer или отдельной панели по клику на карточку.</li>
+            </ul>
+            <div class="sketch">┌ Новые ┐┌ AI ведет ┐┌ Нужен менеджер ┐┌ Ручной ┐
+│ лид   ││ вопрос  ││ КП / сделка    ││ ответ │
+│ лид   ││ уточн.  ││ срочно         ││ звонок│</div>
+          </aside>
+          <div class="mock">
+            <div class="shell layout-b">
+              <div class="top">
+                <div class="brand">
+                  <div class="mark">B</div>
+                  <div>
+                    <strong>Handoff Pipeline</strong>
+                    <span>Продажи по состояниям: от первого вопроса до ручного закрытия</span>
+                  </div>
+                </div>
+                <div class="actions">
+                  <button class="ghost">Чаты</button>
+                  <button class="ghost">Статистика</button>
+                  <button class="primary">Новый тест-лид</button>
+                </div>
+              </div>
+              <div class="kpi-strip">
+                <div class="kpi"><strong>18</strong><span class="tiny">активных диалогов</span></div>
+                <div class="kpi"><strong>6</strong><span class="tiny">ждут менеджера</span></div>
+                <div class="kpi"><strong>11м</strong><span class="tiny">среднее ожидание</span></div>
+                <div class="kpi"><strong>92%</strong><span class="tiny">AI без ручного вмешательства</span></div>
+              </div>
+              <div class="kanban">
+                <section class="column">
+                  <h3>Новые <span class="badge">4</span></h3>
+                  <div class="cards">
+                    <div class="lead-card">
+                      <div class="score"><strong>Игорь</strong><b>42%</b></div>
+                      <span class="tiny">Спрашивает цену · Avito</span>
+                      <button class="ghost">Открыть</button>
+                    </div>
+                    <div class="lead-card">
+                      <div class="score"><strong>Клиент #831</strong><b>37%</b></div>
+                      <span class="tiny">Новый вопрос по объявлению</span>
+                    </div>
+                  </div>
+                </section>
+                <section class="column">
+                  <h3>AI ведет <span class="badge">8</span></h3>
+                  <div class="cards">
+                    <div class="lead-card">
+                      <div class="score"><strong>Ольга</strong><b>61%</b></div>
+                      <span class="tiny">AI уточняет площадь и регион</span>
+                    </div>
+                    <div class="lead-card">
+                      <div class="score"><strong>Дмитрий</strong><b>58%</b></div>
+                      <span class="tiny">Ожидаем ответ клиента</span>
+                    </div>
+                  </div>
+                </section>
+                <section class="column">
+                  <h3>Нужен менеджер <span class="badge hot">6</span></h3>
+                  <div class="cards">
+                    <div class="lead-card">
+                      <div class="score"><strong>Анна</strong><b>91%</b></div>
+                      <span class="tiny">Запрос КП · “хочу сроки и расчет”</span>
+                      <button class="primary">Взять</button>
+                    </div>
+                    <div class="lead-card">
+                      <div class="score"><strong>Сергей</strong><b>88%</b></div>
+                      <span class="tiny">Готов оформить сделку</span>
+                    </div>
+                  </div>
+                </section>
+                <section class="column">
+                  <h3>Ручной режим <span class="badge manual">3</span></h3>
+                  <div class="cards">
+                    <div class="lead-card">
+                      <div class="score"><strong>Максим</strong><b>76%</b></div>
+                      <span class="tiny">Менеджер готовит КП</span>
+                    </div>
+                    <div class="lead-card">
+                      <div class="score"><strong>Наталья</strong><b>69%</b></div>
+                      <span class="tiny">Нужен повторный контакт</span>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="draft">
+          <aside class="brief">
+            <h2>Драфт C · Live Desk</h2>
+            <p>
+              Самый современный и “продуктовый” вариант: вертикальная навигация,
+              компактный список событий и большое окно диалога. Хорош, если
+              дальше появятся VK, Telegram, Drom и сайт.
+            </p>
+            <div class="tags">
+              <span class="tag">масштабируется</span>
+              <span class="tag">мультиканальность</span>
+              <span class="tag">современный SaaS</span>
+            </div>
+            <ul>
+              <li>Навигация отделяет inbox, pipeline, правила, статистику и настройки каналов.</li>
+              <li>Лента событий объединяет новые сообщения, handoff, ошибки API и AI-статусы.</li>
+              <li>Правая часть показывает диалог и карточку клиента без отдельного API inspector на первом экране.</li>
+            </ul>
+            <div class="sketch">┌nav┐┌ live events ┐┌ conversation ┐┌ profile/actions ┐
+│in ││ handoff     ││ messages     ││ score           │
+│pl ││ ai sent     ││ composer     ││ next action     │</div>
+          </aside>
+          <div class="mock">
+            <div class="shell layout-c">
+              <nav class="navrail" aria-label="Основная навигация">
+                <div class="mark">C</div>
+                <div class="navicon active">I</div>
+                <div class="navicon">P</div>
+                <div class="navicon">R</div>
+                <div class="navicon">S</div>
+                <div class="navicon">⚙</div>
+              </nav>
+              <aside class="live-list">
+                <div class="section-head">
+                  <h3>Live desk</h3>
+                  <span class="pill"><i class="dot"></i> 24 online</span>
+                </div>
+                <div class="filter">
+                  <input value="Все каналы · Avito" aria-label="Фильтр событий" />
+                  <button class="icon-btn" aria-label="Фильтры">≡</button>
+                </div>
+                <div class="lead-list">
+                  <div class="row active">
+                    <div class="row-top"><strong>Handoff · Анна</strong><span class="badge hot">2м</span></div>
+                    <span>Запрос КП по объявлению “Дизайн проект”</span>
+                  </div>
+                  <div class="row">
+                    <div class="row-top"><strong>AI отправил ответ</strong><span class="badge">Avito</span></div>
+                    <span>Клиенту предложены варианты сроков</span>
+                  </div>
+                  <div class="row">
+                    <div class="row-top"><strong>Ошибка API</strong><span class="badge hot">retry</span></div>
+                    <span>Нужно проверить отправку в чат #4821</span>
+                  </div>
+                  <div class="row">
+                    <div class="row-top"><strong>Новый лид · сайт</strong><span class="badge">web</span></div>
+                    <span>В будущем тут появится мультиканальность</span>
+                  </div>
+                </div>
+              </aside>
+              <section class="live-detail">
+                <div class="top">
+                  <div class="brand">
+                    <div>
+                      <strong>Анна · запрос КП</strong>
+                      <span>Канал Avito · AI остановлен · менеджер еще не взял</span>
+                    </div>
+                  </div>
+                  <div class="actions">
+                    <button class="ghost">Вернуть AI</button>
+                    <button class="primary">Взять диалог</button>
+                  </div>
+                </div>
+                <div class="detail-grid">
+                  <div class="chat">
+                    <div class="timeline">
+                      <div class="bubble">Сколько будет стоить и когда сможете начать?</div>
+                      <div class="bubble out ai">Я уточню детали и подскажу ориентир.</div>
+                      <div class="bubble">Хочу КП, если возможно сегодня.</div>
+                      <div class="bubble out">Анна, да, подготовлю сегодня. Подскажите удобный способ связи.</div>
+                    </div>
+                    <div class="composer">
+                      <input value="Запросить телефон и подтвердить срок КП" aria-label="Сообщение" />
+                      <button class="ghost">Шаблоны</button>
+                      <button class="primary">Отправить</button>
+                    </div>
+                  </div>
+                  <aside class="mini-panel">
+                    <div class="insight">
+                      <h3>Клиент</h3>
+                      <p class="tiny">Анна · Avito profile · объявление “Дизайн проект”</p>
+                    </div>
+                    <div class="insight">
+                      <h3>Lead score</h3>
+                      <div class="progress"><i></i></div>
+                      <p class="tiny">91% · есть срок, город и явный запрос КП.</p>
+                    </div>
+                    <div class="insight">
+                      <h3>Быстрые действия</h3>
+                      <button class="ghost">Открыть Avito</button>
+                      <button class="ghost">Скопировать summary</button>
+                      <button class="ghost">Показать payload</button>
+                    </div>
+                  </aside>
+                </div>
+              </section>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="notes">
+        <h2>Рекомендация для MVP</h2>
+        <div class="notes-grid">
+          <div>
+            <strong>Начать с A</strong>
+            <p class="tiny">
+              Он ближе к текущему DOM: можно модернизировать CSS и переставить
+              правую колонку без большого переписывания логики.
+            </p>
+          </div>
+          <div>
+            <strong>Добавить из B</strong>
+            <p class="tiny">
+              KPI-строку и состояния воронки как второй экран или режим
+              группировки, когда появится больше лидов.
+            </p>
+          </div>
+          <div>
+            <strong>Держать C как целевую картину</strong>
+            <p class="tiny">
+              Этот вариант лучше для мультиканальности, но требует больше
+              навигации, роутинга и состояния интерфейса.
+            </p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,15 @@
+.git
+.env
+.venv
+.pytest_cache
+.codex-runtime
+.release
+.release.backup-*
+.worktrees
+__pycache__
+*.pyc
+*.log
+uvicorn-*.pid
+tools/project-memory/project_memory.sqlite
+tools/project-memory/chroma
+tools/project-memory/semantic-corpus.jsonl
