@@ -106,6 +106,8 @@ the Avito client secret.
 - For Codex App Server, set `CODEX_APP_SERVER_BASE_URL` to an OpenAI-compatible
   API base that exposes `/chat/completions`. Optional settings:
   `CODEX_APP_SERVER_API_KEY` and `CODEX_APP_SERVER_MODEL`.
+- `PORT` is the container port. Hosting platforms may inject it automatically;
+  local Docker Compose defaults to `8000`.
 - Keep `.env` out of git.
 - `AVITO_USER_ID` is optional for startup; the app tries to infer it from
   `GET /core/v1/accounts/self`.

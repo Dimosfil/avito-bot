@@ -83,7 +83,9 @@ Copy-Item .\env.docker.example .\.env
 ```
 
 Fill `.env` with Avito credentials and the selected AI provider credentials.
-Keep `HOST_PORT=8000` unless the host already uses that port.
+Keep `PORT=8000` unless the hosting platform injects another `PORT` value.
+Keep `HOST_PORT=8000` for local Docker Compose unless the host already uses
+that port.
 
 Build and start:
 
