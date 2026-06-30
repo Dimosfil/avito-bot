@@ -99,6 +99,15 @@ Open:
 http://127.0.0.1:8000
 ```
 
+Current Bothost deployment uses the repository `Dockerfile`, domain
+`https://avitobot.bothost.tech`, and web application port `8000`. Leave the
+hosting panel's main file / entry point field empty for Dockerfile deployments.
+Check the public runtime at:
+
+```text
+https://avitobot.bothost.tech/api/health
+```
+
 Useful operations:
 
 ```powershell

@@ -105,3 +105,40 @@ Access and privacy boundary:
 - Treat customer conversations sent to the Codex App Server as private lead
   data; only the current chat context needed for a reply should be sent.
 - Do not store raw Codex App Server prompts or responses in project memory.
+
+## Bothost
+
+Role: current public Docker hosting target for the Module 2 MVP web runtime.
+
+Canonical runtime:
+
+- GitHub source: `https://github.com/Dimosfil/avito-bot`.
+- Runtime source of truth: project `Dockerfile`.
+- Public domain: `https://avitobot.bothost.tech`.
+- Health endpoint: `https://avitobot.bothost.tech/api/health`.
+
+Current hosting decision:
+
+- Bothost may show the app under a platform/template category such as `VK` /
+  `Vk_api`, but that category is not the application contract. The service must
+  run from the repository Dockerfile.
+- Enable domain access for the app.
+- Set the web application port to `8000`.
+- Leave the panel's main file / entry point field empty for Dockerfile
+  deployments; the Dockerfile `CMD` starts `uvicorn app.main:app`.
+- Keep `PORT=8000` unless Bothost injects another runtime port.
+
+Deployment environment contract:
+
+- Required variables: `PORT`, `AI_PROVIDER`, `DEEPSEEK_API_KEY`,
+  `DEEPSEEK_MODEL`, `AVITO_CLIENT_ID`, and `AVITO_CLIENT_SECRET`.
+- Optional variables: `HOST_PORT`, `AVITO_USER_ID`, `AVITO_WEBHOOK_URL`,
+  `CODEX_APP_SERVER_BASE_URL`, `CODEX_APP_SERVER_API_KEY`, and
+  `CODEX_APP_SERVER_MODEL`.
+
+Access and privacy boundary:
+
+- Never store real deployment secret values in project memory, docs, committed
+  examples, screenshots, logs, or chat.
+- Store real values only in Bothost environment variables, local ignored `.env`
+  files, or another approved secret store.

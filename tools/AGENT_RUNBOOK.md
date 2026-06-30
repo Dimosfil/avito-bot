@@ -54,6 +54,49 @@ http://127.0.0.1:8000
 Docker keeps runtime state in the host `.codex-runtime/` folder through a bind
 mount. Preserve this folder across container rebuilds and restarts.
 
+## Bothost Deployment
+
+Current Bothost deployment settings:
+
+- App display name: `AvitoBot`.
+- Source: GitHub repository `https://github.com/Dimosfil/avito-bot`.
+- Runtime source: `Dockerfile`.
+- Template/category shown by Bothost: `VK` / `Vk_api`. This is only a hosting
+  panel category; the app runtime is still defined by the project Dockerfile.
+- Domain access: enabled.
+- Public domain: `avitobot.bothost.tech`.
+- Web application port: `8000`.
+- Main file / entry point: leave empty for Dockerfile deployments.
+- Region shown by Bothost: `Новосибирск 7 (nsk7)`, `Россия`.
+
+Required deployment environment variables:
+
+```text
+PORT=8000
+AI_PROVIDER=deepseek
+DEEPSEEK_API_KEY=<secret>
+DEEPSEEK_MODEL=deepseek-v4-flash
+AVITO_CLIENT_ID=<secret>
+AVITO_CLIENT_SECRET=<secret>
+```
+
+Optional or currently blank variables:
+
+```text
+HOST_PORT=8000
+AVITO_USER_ID=
+AVITO_WEBHOOK_URL=
+CODEX_APP_SERVER_BASE_URL=
+CODEX_APP_SERVER_API_KEY=
+CODEX_APP_SERVER_MODEL=codex
+```
+
+Bothost health check URL:
+
+```text
+https://avitobot.bothost.tech/api/health
+```
+
 Useful commands:
 
 ```powershell
