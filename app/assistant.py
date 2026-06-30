@@ -51,13 +51,16 @@ def detect_handoff(messages: list[dict[str, Any]]) -> str | None:
 
 
 def detect_admin_command(messages: list[dict[str, Any]]) -> str | None:
-    for message in reversed(order_messages(messages)):
+    admin_mode = False
+    for message in order_messages(messages):
         if message.get("direction") != "in" or message.get("type") == "system":
             continue
-        if bot_rules.ADMIN_CODE in _message_text(message):
-            return bot_rules.ADMIN_COMMAND_REASON
-        return None
-    return None
+        text = _message_text(message)
+        if bot_rules.ADMIN_CODE in text:
+            admin_mode = True
+        if bot_rules.ADMIN_MODE_DISABLE_RE.search(text):
+            admin_mode = False
+    return bot_rules.ADMIN_COMMAND_REASON if admin_mode else None
 
 
 def build_prompt(chat: dict[str, Any], messages: list[dict[str, Any]], *, admin_mode: bool | None = None) -> list[ChatMessage]:
@@ -70,6 +73,8 @@ def build_prompt(chat: dict[str, Any], messages: list[dict[str, Any]], *, admin_
     client_name = client_display_name(chat) or "unknown"
 
     transcript = []
+    client_texts: list[str] = []
+    seller_texts: list[str] = []
     for message in order_messages(messages)[-12:]:
         if message.get("type") == "system":
             continue
@@ -77,6 +82,17 @@ def build_prompt(chat: dict[str, Any], messages: list[dict[str, Any]], *, admin_
         text = _message_text(message)
         if text:
             transcript.append(f"{role}: {text}")
+            if role == "client":
+                client_texts.append(text)
+            else:
+                seller_texts.append(text)
+
+    dialogue_guidance = bot_rules.build_dialogue_guidance(
+        client_texts=client_texts,
+        seller_texts=seller_texts,
+        item_price=price,
+        admin_mode=admin_mode,
+    )
 
     return [
         ChatMessage(
@@ -93,6 +109,7 @@ def build_prompt(chat: dict[str, Any], messages: list[dict[str, Any]], *, admin_
                 f"Price: {price}\n"
                 f"URL: {url}\n\n"
                 f"Client Avito account name: {client_name}\n\n"
+                f"Dialogue guidance: {dialogue_guidance}\n\n"
                 "Conversation:\n"
                 + "\n".join(transcript)
                 + "\n\nDraft the next seller reply."

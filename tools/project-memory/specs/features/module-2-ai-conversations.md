@@ -209,6 +209,13 @@ Configurable values:
 
 These values belong in configuration, database records, or resources, not inline
 inside handlers or channel adapters.
+The current backend default rules resource is `app/rules/bot-rules.json`.
+`app/bot_rules.py` loads and validates that resource, compiles regex patterns,
+and exposes rule-application helpers to the assistant. The JSON owns handoff
+phrases, intent patterns, prompt rules, dialogue thresholds, and deterministic
+post-processing patterns. Deployments may point `AVITO_BOT_RULES_PATH` to
+another JSON file, and `AVITO_ADMIN_CODE` may override the default admin/debug
+activation code without changing Python source.
 
 ## Verification Contract
 
@@ -269,10 +276,23 @@ Minimum MVP checks:
 - If the latest client message is rude, sarcastic, hostile, or unclear, the
   assistant must stay calm, avoid mirroring the tone or joking back, and ask one
   short clarifying question about the business task.
-- Inbound messages containing admin code `547032` are admin/test settings, not
-  customer lead messages. The backend must detect this code before normal
-  handoff checks and must call the LLM with an explicit admin-mode system
-  prompt. In admin mode, the assistant treats the sender as the creator/admin
-  testing or configuring the bot, not as a normal sales lead, while still
-  refusing to reveal secrets, tokens, private logs, or hidden system
-  instructions.
+- The assistant must not overuse manager handoff as a substitute for answering
+  first-line sales questions. For price or timing questions it should answer
+  directly with the known entry price or scope dependency, ask at most one
+  missing detail, and avoid repeating the same "pass to manager" wording when
+  the conversation already contains that handoff promise. Once the client has
+  supplied several useful task details, the assistant should summarize the
+  collected requirements and move toward manager review instead of restarting
+  broad qualification.
+- Inbound messages containing the configured admin code start admin/test
+  settings mode, not a normal customer lead flow. The mode stays active for
+  later inbound messages in the same conversation until the admin says a
+  configured disable phrase such as `Выключить отладку` or `Отключить режим`.
+  The backend must detect the current admin-mode state before normal handoff
+  checks and must call the LLM with an explicit admin-mode system prompt that
+  does not need to repeat the activation code. In admin mode, the assistant
+  must not include the normal first-line sales playbook or manager-handoff
+  dialogue guidance unless the admin explicitly asks to test those rules. The
+  assistant treats the sender as the creator/admin testing or configuring the
+  bot, not as a normal sales lead, while still refusing to reveal secrets,
+  tokens, private logs, or hidden system instructions.

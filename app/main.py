@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from app.ai_client import FallbackAIClient
 from app.assistant import SalesAssistant, order_messages
+from app.avito_payload import chat_item_key
 from app.avito_client import AvitoClient, AvitoConfigError
 from app.codex_app_server_client import CodexAppServerClient, CodexAppServerConfigError
 from app.config import get_settings
@@ -721,7 +722,7 @@ def _apply_manual_default_for_new_items(chats: list[dict[str, Any]]) -> None:
     chat_ids_by_item_key: dict[str, list[str]] = {}
     for chat in chats:
         chat_id = str(chat.get("id") or "")
-        item_key = _chat_item_key(chat)
+        item_key = chat_item_key(chat)
         if not chat_id or not item_key:
             continue
         chat_ids_by_item_key.setdefault(item_key, []).append(chat_id)
@@ -749,37 +750,6 @@ def _apply_manual_default_for_new_items(chats: list[dict[str, Any]]) -> None:
 
     if changed:
         _save_bot_control_state()
-
-
-def _chat_item_key(chat: dict[str, Any]) -> str:
-    item = _chat_item_context(chat)
-    value = (
-        item.get("id")
-        or item.get("item_id")
-        or item.get("avito_id")
-        or chat.get("item_id")
-        or chat.get("itemId")
-        or item.get("url")
-        or item.get("uri")
-        or item.get("link")
-        or item.get("external_url")
-    )
-    if value:
-        return str(value)
-    title = item.get("title") or chat.get("context", {}).get("title") or ""
-    price = item.get("price_string") or ""
-    fallback = f"{title}|{price}".strip("|")
-    return fallback or ""
-
-
-def _chat_item_context(chat: dict[str, Any]) -> dict[str, Any]:
-    context = chat.get("context")
-    if isinstance(context, dict) and isinstance(context.get("value"), dict):
-        return context["value"]
-    item = chat.get("item")
-    if isinstance(item, dict):
-        return item
-    return {}
 
 
 def _to_http_error(exc: Exception) -> HTTPException:

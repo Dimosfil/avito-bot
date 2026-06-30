@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from app.avito_payload import author_role, chat_item_context, chat_item_key, message_text, safe_int
 from app.config import Settings
 
 
@@ -468,9 +469,9 @@ def _sqlite_path_from_url(database_url: str | None) -> Path | None:
 
 def _chat_row(chat: dict[str, Any]) -> tuple[str, str, str | None, str | None, str, int]:
     chat_id = str(chat.get("id"))
-    item = _chat_item_context(chat)
+    item = chat_item_context(chat)
     title = str(chat.get("title") or item.get("title") or "") or None
-    item_key = _chat_item_key(chat) or None
+    item_key = chat_item_key(chat) or None
     return ("avito", chat_id, item_key, title, json.dumps(chat, ensure_ascii=False), int(time.time()))
 
 
@@ -479,9 +480,9 @@ def _message_row(chat_id: str, message: dict[str, Any]) -> tuple[Any, ...]:
     message_key = str(message_id) if message_id else _stable_message_key(message)
     direction = message.get("direction")
     message_type = message.get("type")
-    author_role = _author_role(direction)
-    created_at = _safe_int(message.get("created") or message.get("created_at"))
-    text = _message_text(message)
+    role = author_role(direction)
+    created_at = safe_int(message.get("created") or message.get("created_at"))
+    text = message_text(message)
     return (
         "avito",
         chat_id,
@@ -489,7 +490,7 @@ def _message_row(chat_id: str, message: dict[str, Any]) -> tuple[Any, ...]:
         str(message_id) if message_id else None,
         str(direction) if direction else None,
         str(message_type) if message_type else None,
-        author_role,
+        role,
         created_at,
         text,
         json.dumps(message, ensure_ascii=False),
@@ -500,60 +501,3 @@ def _message_row(chat_id: str, message: dict[str, Any]) -> tuple[Any, ...]:
 def _stable_message_key(message: dict[str, Any]) -> str:
     payload = json.dumps(message, ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
-
-
-def _message_text(message: dict[str, Any]) -> str | None:
-    content = message.get("content")
-    if isinstance(content, dict):
-        text = content.get("text")
-        if isinstance(text, str) and text.strip():
-            return text.strip()
-    return None
-
-
-def _author_role(direction: Any) -> str | None:
-    if direction == "in":
-        return "client"
-    if direction == "out":
-        return "seller"
-    return None
-
-
-def _safe_int(value: Any) -> int | None:
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _chat_item_key(chat: dict[str, Any]) -> str:
-    item = _chat_item_context(chat)
-    value = (
-        item.get("id")
-        or item.get("item_id")
-        or item.get("avito_id")
-        or chat.get("item_id")
-        or chat.get("itemId")
-        or item.get("url")
-        or item.get("uri")
-        or item.get("link")
-        or item.get("external_url")
-    )
-    if value:
-        return str(value)
-    title = item.get("title") or chat.get("context", {}).get("title") or ""
-    price = item.get("price_string") or ""
-    fallback = f"{title}|{price}".strip("|")
-    return fallback or ""
-
-
-def _chat_item_context(chat: dict[str, Any]) -> dict[str, Any]:
-    context = chat.get("context")
-    if isinstance(context, dict) and isinstance(context.get("value"), dict):
-        return context["value"]
-    item = chat.get("item")
-    if isinstance(item, dict):
-        return item
-    return {}
