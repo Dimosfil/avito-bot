@@ -7,21 +7,10 @@ behavior as the full instruction kit.
 
 ## Project
 
-`avito-bot` is a modular marketing platform for marketplace and channel
-automation. The product should help a business publish content, answer incoming
-customer messages, assist managers, and act as a secretary for first-line sales
-communication.
-
-Initial implementation focus: Module 2, AI conversation automation for incoming
-leads from marketplaces, social platforms, messengers, and the organization's
-site.
+Describe what this project is, who it serves, and the primary runtime or product
+surface.
 
 ## Project Goal
-
-Current agreed goal: build the first MVP of Module 2. The MVP must receive or
-simulate incoming customer requests, let AI handle the first-line dialogue,
-detect handoff intent such as "хочу КП" or "хочу сделку", notify a manager,
-and allow the manager to manually take over while seeing the client's messages.
 
 Before implementation starts on a new project session, confirm a clear,
 measurable project goal. If no goal is present in local instructions, project
@@ -40,15 +29,15 @@ implemented against each goal criterion and list remaining gaps as blockers.
 - Read only the modules needed for the current request.
 - Before acting on a concrete task, select and read the matching module(s);
   this entrypoint alone is enough only for greetings or status-neutral replies.
-- If the request contains a GI chat command such as `gi ...`, `РіРё ...`, or a
-  known mojibake form such as `Р С–Р С‘ ...`, treat it as a concrete task even when
+- If the request contains a GI chat command such as `gi ...`, `ги ...`, or a
+  known mojibake form such as `РіРё ...`, treat it as a concrete task even when
   the message is short. First read `COMMANDS.md` when present, then read every
   runtime module routed to that command before acting.
 - For state-changing GI commands that start, stop, restart, rebuild, deploy,
   test, install, reset, update, commit, push, or manage task-manager state, do
   not execute from memory, old chat examples, or a command name alone. If the
   command's routed module is unavailable, stop and report the missing path.
-- For `gi restart`, `gi reboot`, `РіРё СЂРµСЃС‚Р°СЂС‚`, `РіРё СЂРµР±СѓС‚`, and equivalent
+- For `gi restart`, `gi reboot`, `ги рестарт`, `ги ребут`, and equivalent
   aliases, `patterns/AGENTS_RUNTIME/09-project-operation-commands.md` is
   mandatory context before any process inspection, stop, start, or success
   report.
@@ -88,8 +77,9 @@ Use the RAG startup flow and retrieve only task-relevant context.
   and shared-rule propagation: `patterns/AGENTS_RUNTIME/01-purpose.md`
 - Repository map: `patterns/AGENTS_RUNTIME/02-repository-map.md`
 - Rule precedence and scope arbitration: `patterns/AGENTS_RUNTIME/03-rule-precedence.md`
-- Authoring reusable rules, configuration boundaries, code quality, stack
-  inventory, and batch verification: `patterns/AGENTS_RUNTIME/04-content-and-authoring.md`
+- Authoring reusable rules, configuration boundaries, code quality, project
+  info/stack inventory, and batch verification:
+  `patterns/AGENTS_RUNTIME/04-content-and-authoring.md`
 - Windows shell and networking policy: `patterns/AGENTS_RUNTIME/05-windows-command-policy.md`
 - Token economy, verification command lookup, `gi info`, `gi stack`,
   `gi refactor`, feature contracts, and large-output handling:
@@ -184,10 +174,3 @@ Inspect logs:
 - Treat this project root as the filesystem boundary for normal work unless the
   user gives an explicit concrete path and action.
 - Preserve text encodings when editing files.
-- Production runtime state is business-critical. `gi prod`, production reboot,
-  and local release deploys must preserve `.release/.codex-runtime/` state,
-  including server-side autoreply, pending autoreply, and manager takeover
-  state. If no previous production runtime state exists, seed it from the
-  development `.codex-runtime/` before starting `.release`. Never report the
-  production bot as successfully deployed or rebooted if server-side autoreply
-  was enabled before the operation and is disabled afterward.

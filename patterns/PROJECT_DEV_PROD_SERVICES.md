@@ -59,6 +59,12 @@ or an equivalent ignored local file.
   to replace.
 - Keep real remote API credentials separate from development credentials. Prefer
   sandbox, test, or separate bot/application tokens for development.
+- Prefer managed secret stores, KMS, vaults, deployment secrets, or equivalent
+  production secret backends for live service credentials. When the provider
+  supports scoped credentials, usage monitoring, rotation, or network
+  restrictions such as IP allowlists, document and use those controls in the
+  project-local production contract. Follow
+  `patterns/API_KEY_SECRET_SAFETY.md`.
 - If the production folder lives under the repository root, ensure it is
   excluded from commits unless the project deliberately tracks a deployable
   production tree.

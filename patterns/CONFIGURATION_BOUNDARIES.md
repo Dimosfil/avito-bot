@@ -21,13 +21,25 @@ variables, service discovery, or deployment metadata.
   location for the stack.
 - Keep secrets out of committed config. Commit only redacted examples, secret
   reference names, or environment variable names.
+- Treat API keys, access tokens, service-account keys, webhook secrets, and
+  signing secrets as credential boundaries. Never place them in source code,
+  client-side bundles, public frontend environment variables, logs, traces, or
+  generated artifacts; use project-local secret stores, environment variables,
+  deployment secret managers, or secret references instead. Follow
+  `patterns/API_KEY_SECRET_SAFETY.md`.
 - Use service identifiers and config-service records for local development
   HTTP services instead of fixed ports, URLs, dashboard links, runbook examples,
   or stale task-manager records. A local dev port or URL is valid only after it
   is resolved from, assigned by, or written through the documented
-  config-service contract. Deployed hosting environments follow the hosting or
-  deploy contract for that target instead of the local config-service contract,
-  unless project-local production instructions explicitly say otherwise.
+  config-service contract. Once recorded, that port is an exclusive runtime
+  contract for the service id: if the port is busy, verify the owner and either
+  reuse/restart the same documented service through the run contract or stop
+  with a port-conflict blocker. Do not take a neighboring free port, overwrite
+  the service record, or stop an unverified process as a fallback. Changing the
+  port changes browser origin and can make browser-scoped state appear lost.
+  Deployed hosting environments follow the hosting or deploy contract for that
+  target instead of the local config-service contract, unless project-local
+  production instructions explicitly say otherwise.
 - Avoid machine-specific absolute paths in source, shared instructions, and
   committed examples unless the file is explicitly a local-only example.
 - When a configured value is a path, resolve it to an absolute path at startup

@@ -118,6 +118,10 @@ gi первый тест
 ги рестарт
 ги конфиг сервис урл=http://127.0.0.1:4100
 gi install
+gi local sprint
+gi sprint local
+gi локальный спринт
+gi спринт локально
 gi инсталл
 ги инсталл
 gi старт спринт
@@ -194,7 +198,7 @@ the listed commands.
 | `gi reboot`, `gi restart`, `ги ребут`, `ги рестарт` | Start or restart all documented project apps using local run instructions. |
 | `gi first test`, `gi первый тест` | Reset documented first-run state and verify first-launch experience. |
 | `gi default`, `gi defaults`, `ги дефолт` | Restore the current project to documented first-run/default state. |
-| `gi install`, `gi инсталл`, `ги инсталл` | Build/package the current project and verify an installer artifact. |
+| `gi install`, `gi инсталл`, `ги инсталл` | Build/package the current project and verify an installer artifact; default target is Windows unless another platform is named. |
 | `gi ftp config`, `gi ftp service`, `gi ftp folder` | Inspect or configure FTP/SFTP deployment settings without uploading. |
 | `gi ftp`, `gi ftp push`, `gi deploy ftp`, `gi upload ftp` | Upload configured build output to the configured FTP/SFTP target. |
 | `gi tm`, `gi manager` | Inspect the configured task manager through config-service. |
@@ -203,6 +207,7 @@ the listed commands.
 | `gi add sprint`, `gi create sprint`, `gi добавить спринт` | Create a visible Sprint/Cycle through the configured task manager. |
 | `gi plan`, `gi план`, `gi post plan` | Send the current plan to the configured task manager. |
 | `gi start sprint`, `gi старт спринт` | Take the active Sprint/Cycle into work through the configured task manager. |
+| `gi local sprint`, `gi sprint local`, `gi локальный спринт`, `gi спринт локально` | Run a local sprint checklist without task manager or config-service sync. |
 | `gi test plan`, `gi тест-план` | Build a verification plan from current project contracts. |
 | `gi test task`, `ги тест таск` | Set the active release/full-system verification task for the current project. |
 | `gi test`, `ги тест` | Run the documented full project verification flow against the active test task. |
@@ -554,8 +559,11 @@ gi defaults
 The agent restores the current project to its documented first-run/default
 state. This is broader than `gi first test`: it may clear project-owned app
 state, generated caches, local settings, onboarding flags, temporary profiles,
-and other rebuildable state that local instructions explicitly define as safe to
-reset.
+runtime logs, queues, worker state, generated test databases, browser storage
+for the app origin, and other rebuildable state that local instructions
+explicitly define as safe to reset. Preserve only exclusions explicitly
+documented by the current project; old chat, screenshots, previous run
+artifacts, and browser state do not create reset exceptions.
 
 Before clearing anything, the agent reads project-local reset, cleanup,
 first-run, run, backup, and test instructions. If the project provides a reset
@@ -583,16 +591,35 @@ gi инсталл
 gi install Inno Setup
 gi инсталл Inno Setup
 gi инсталл <программа>
+gi install macOS
+gi install Android
 ```
 
 Также распознавать очевидные опечатки вроде `gi иснтлл`, если намерение
 собрать installer ясно из контекста.
 
 Агент собирает production build и установочный файл для текущего проекта.
-Если программа не указана, по умолчанию использовать Inno Setup: найти
-project-local build/package инструкции, скрипты и `.iss` файл, затем собрать
-приложение и installer. Если после команды указана программа, использовать её
-как предпочитаемый packaging/installer tool вместо Inno Setup.
+Если целевая платформа не указана, по умолчанию собирать Windows installer.
+Для Windows, если программа не указана, по умолчанию использовать Inno Setup:
+найти project-local build/package инструкции, скрипты и `.iss` файл, затем
+собрать приложение и installer. Если после команды указана программа,
+использовать её как предпочитаемый packaging/installer tool вместо Inno Setup.
+Если пользователь явно называет macOS, iOS, Android, Linux или другую
+платформу, либо такая платформа задана project-local packaging contract,
+следовать соответствующему локальному контракту сборки/подписи/пакетирования.
+Если указанная платформа поддерживается проектом, но нужный packaging contract
+не найден или неоднозначен, задать один короткий уточняющий вопрос вместо
+переключения на Windows по умолчанию.
+
+Для каждой целевой платформы держать отдельную project-local папку. В ней
+должны лежать или быть явно связаны инструкции сборки, packaging configs,
+signing/notarization/provisioning notes, verification notes и текущие installer
+artifacts для этой платформы. Если проект уже задаёт свой layout, следовать
+ему; если агент создаёт или исправляет packaging layout, использовать
+платформенные подпапки вроде `packaging/windows/`, `packaging/macos/`,
+`packaging/ios/`, `packaging/android/`, `packaging/linux/` или эквивалентные
+project-local имена. Не смешивать artifacts разных платформ в одной общей
+папке без per-platform manifest.
 
 Перед packaging агент определяет версию приложения из project-local metadata:
 manifests, package files, assembly attributes, release files или installer
@@ -629,6 +656,27 @@ supports active sprint lookup, next-task lookup, and task completion for the
 selected workflow. If only generic health works, stop before executing tasks.
 This command is more specific than plain `gi start`; do not answer it with only
 generic startup restore when a configured task-manager workflow is available.
+
+### Run Local Sprint Checklist
+
+```text
+gi local sprint
+gi sprint local
+gi локальный спринт
+gi спринт локально
+```
+
+Use this when the user wants sprint-shaped work without a configured task
+manager or config-service. The agent uses sprint content from the current
+message, current chat context, or a project-local checklist file explicitly
+named by local instructions. If no sprint content is available, ask one short
+question for the sprint goal and task list.
+
+This command is not a task-manager workflow. Do not resolve config-service,
+create raw manager intake, edit task-manager internals, or claim that a visible
+Sprint/Cycle was created, started, completed, or synchronized. If the user asks
+for `gi start sprint` and the manager/config-service setup is missing, report
+that blocker and mention `gi local sprint` as the explicit local alternative.
 
 ### Проверить Обновления Инструкций
 
@@ -883,6 +931,18 @@ while `gi test` runs. Before running, the agent rereads current local
 instructions, README, manifests, runbooks, test configs, and source entry
 points needed to verify exact commands, services, app set, ports, routes,
 payloads, environment, storage, auth, queues, workers, and health checks.
+Before the live checks, the agent must reset project-owned runtime state to the
+documented default/factory baseline, preserving only exclusions explicitly
+documented by the current project. Browser storage, generated databases, logs,
+queues, temporary workers, app caches, and similar rebuildable state are cleared
+unless the project-local reset contract lists them as exceptions. If reset
+targets or safe exceptions are undocumented, report that blocker instead of
+running a dirty-state test.
+
+After reset, selected chain/preset/execution mode, ports, task, and service
+endpoints must be read from the project-local source of truth such as config
+files, backend state, service discovery, or database metadata. Browser
+`localStorage` is only UI cache; it cannot be the source of truth for `gi test`.
 
 For `gi test`, dry-run mode is not a valid result. Do not report `--dry-run`,
 simulation mode, dispatcher-only execution, replayed logs, mock-only runs, or
@@ -1157,7 +1217,14 @@ local config area as its config-service URL. `on` is for web-facing apps that
 expose a port, HTTP API, web UI, task-manager service, or local daemon endpoint:
 on startup they must contact config-service and read their own `service_id`
 startup/service record before binding any port. The port to bind and neighboring
-service endpoints come from config-service. If config-service is missing,
+service endpoints come from config-service. If the recorded port is already
+occupied, the app or agent must verify whether the owner is the same documented
+service instance. A same-service owner may be reused or restarted only through
+the local run contract. A different, unknown, or unverifiable owner is a
+port-conflict blocker: do not stop it without explicit approval, do not rewrite
+the service record, and do not bind a neighboring fallback port. Changing ports
+changes browser origin and can make browser-owned state such as localStorage,
+cookies, and IndexedDB appear missing. If config-service is missing,
 unreachable, has no record for the app, or returns incomplete startup config,
 startup reports the blocker and waits for config-service to be configured,
 repaired, or started; it does not guess, scan, or use stale fallback ports.
@@ -1176,9 +1243,12 @@ records, desktop packaging metadata, or project memory; do not assume a
 successful web/API start covers the project. For local web/API services,
 resolve the service id, port, URL, and neighboring endpoints through
 config-service before running a start command; fixed ports in local runbooks or
-examples do not authorize a fallback bind. If a config-service record is
-missing, use only the documented config-service registration workflow to create
-or update it before startup, or stop with the exact missing contract. If local
+examples do not authorize a fallback bind. If the resolved port is occupied,
+verify whether the owner is the same documented service; otherwise report a
+port-conflict blocker and do not move the app to another port. If a
+config-service record is missing, use only the documented config-service
+registration workflow to create or update it before startup, or stop with the
+exact missing contract. If local
 instructions define a preferred start/restart command that launches the full
 app set, use it only with the config-service-resolved local runtime values for
 web/API apps. Otherwise enumerate every documented app or runtime, such as

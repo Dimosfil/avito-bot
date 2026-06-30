@@ -1,5 +1,5 @@
 ﻿{
-    "instruction_kit_version":  "2026.06.24.5",
+    "instruction_kit_version":  "2026.06.30.2",
     "source":  "https://github.com/Dimosfil/general-instructions.git",
     "installed_at":  "2026-06-23T17:14:55.4688374+03:00",
     "update_check":  {
@@ -57,7 +57,14 @@
                          "templates/TECHNOLOGY_STACK.template.md",
                          ".gitignore",
                          "COMMANDS.md",
-                         "patterns/PROJECT_DEV_PROD_SERVICES.md"
+                         "patterns/PROJECT_DEV_PROD_SERVICES.md",
+                         "patterns/API_KEY_SECRET_SAFETY.md",
+                         "patterns/FIRST_MESSAGE_HANDLING.md",
+                         "patterns/RAG_STARTUP_FLOW.md",
+                         "patterns/SENIOR_AGENT_ENGINEERING_STANDARD.md",
+                         "patterns/SERVICE_DISCOVERY_CONFIG.md",
+                         "templates/AGENTS.template.md",
+                         "templates/instruction-kit.template.json"
                      ],
     "applied_migrations":  [
                                "2026.05.16.1__add_skill_modules",
@@ -184,7 +191,10 @@
                                "2026.06.24.2__add_gi_prod_online_service_publication",
                                "2026.06.24.3__add_gi_info_command",
                                "2026.06.24.4__gi_info_uses_project_languages",
-                               "2026.06.24.5__make_gi_info_idempotent"
+                               "2026.06.24.5__make_gi_info_idempotent",
+                               "2026.06.24.6__add_local_sprint_command",
+                               "2026.06.30.1__add_senior_agent_engineering_standard",
+                               "2026.06.30.2__add_api_key_secret_safety"
                            ],
-    "last_update_check_at":  "2026-06-24T11:25:03+03:00"
+    "last_update_check_at":  "2026-06-30T15:43:11+03:00"
 }

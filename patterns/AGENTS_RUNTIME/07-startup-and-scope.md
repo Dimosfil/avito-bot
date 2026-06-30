@@ -23,6 +23,12 @@
 - Treat `gi start sprint`, `gi sprint start`, and equivalent active-sprint
   wording as more specific than plain `gi start`: route them through the
   configured task-manager workflow, not generic startup restore.
+- Treat `gi local sprint`, `gi sprint local`, `gi локальный спринт`,
+  `gi спринт локально`, and equivalent explicitly local sprint wording as a
+  local execution workflow, not as a request to resolve or mutate task-manager
+  state. Read the routed sprint/task-manager module before acting, then use
+  only the supplied chat context or project-local checklist location documented
+  by local instructions.
 - Do not treat remembered plans, old refactoring phases, stale task notes, or
   local commits ahead of a remote as the next action during `gi start` or
   `gi restore`. Mention them only as compact context when relevant, then ask for
