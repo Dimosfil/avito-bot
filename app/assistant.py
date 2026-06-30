@@ -34,6 +34,7 @@ class SalesAssistant:
 
         prompt_messages = build_prompt(chat, messages, admin_mode=admin_mode)
         text = await self._deepseek.create_chat_completion(prompt_messages)
+        text = bot_rules.redact_admin_code(text)
         text = bot_rules.strip_seller_name_address(text, client_name=client_display_name(chat))
         text = bot_rules.strip_repeated_greeting(text, seller_already_greeted=seller_already_greeted(messages))
         text = bot_rules.sanitize_outgoing_text(text)
@@ -80,7 +81,7 @@ def build_prompt(chat: dict[str, Any], messages: list[dict[str, Any]], *, admin_
         if message.get("type") == "system":
             continue
         role = "client" if message.get("direction") == "in" else "seller"
-        text = _message_text(message)
+        text = bot_rules.redact_admin_code(_message_text(message))
         if text:
             transcript.append(f"{role}: {text}")
             if role == "client":

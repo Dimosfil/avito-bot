@@ -213,6 +213,12 @@ def sanitize_outgoing_text(text: str) -> str:
     return cleaned.strip()
 
 
+def redact_admin_code(text: str) -> str:
+    if not ADMIN_CODE:
+        return text
+    return text.replace(ADMIN_CODE, "[admin code hidden]")
+
+
 def _configured_rules_path() -> Path:
     configured_path = os.getenv(RULES_PATH_ENV)
     return Path(configured_path) if configured_path else DEFAULT_RULES_PATH
