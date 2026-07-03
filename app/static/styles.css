@@ -749,6 +749,84 @@ input:disabled {
     minmax(420px, 1fr);
 }
 
+.logs-workspace {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.logs-panel {
+  min-width: 0;
+}
+
+.logs-status {
+  flex: 0 0 auto;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.admin-log-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 14px 16px;
+}
+
+.admin-log-item {
+  display: grid;
+  gap: 6px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(21, 24, 22, 0.08);
+}
+
+.admin-log-item.warning .admin-log-level {
+  background: rgba(242, 184, 75, 0.2);
+  color: #8a5c00;
+}
+
+.admin-log-item.error .admin-log-level {
+  background: rgba(196, 71, 61, 0.14);
+  color: var(--danger);
+}
+
+.admin-log-head {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.admin-log-head strong {
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-log-level {
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  text-transform: uppercase;
+}
+
+.admin-log-item pre {
+  max-height: 180px;
+  margin: 0;
+  overflow: auto;
+  border-radius: 6px;
+  background: #111815;
+  color: #dce8df;
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 8px;
+  white-space: pre-wrap;
+}
+
 .stats-controls {
   display: grid;
   gap: 10px;

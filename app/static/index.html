@@ -22,6 +22,7 @@
           <nav class="view-tabs" aria-label="Основные разделы">
             <button id="chatTabButton" class="view-tab active" type="button">Чаты</button>
             <button id="statsTabButton" class="view-tab" type="button">Статистика</button>
+            <button id="logsTabButton" class="view-tab" type="button">Логи</button>
           </nav>
           <p id="automationLine" class="automation-line">Auto reply idle</p>
         </div>
@@ -216,11 +217,25 @@
           </div>
         </section>
       </section>
+
+      <section id="logsView" class="workspace logs-workspace" hidden>
+        <section class="panel logs-panel">
+          <div class="panel-header">
+            <div>
+              <p class="panel-kicker">Runtime diagnostics</p>
+              <h2>Логи</h2>
+            </div>
+            <button id="refreshLogsButton" type="button">Обновить</button>
+          </div>
+          <p id="logsStatusLine" class="panel-status logs-status">Последние события runtime</p>
+          <div id="adminLogList" class="admin-log-list"></div>
+        </section>
+      </section>
     </main>
 
     <script src="/static/bot-rules.js"></script>
-    <script src="/static/api.js?v=20260703-postgres-cache4"></script>
-    <script src="/static/qualification.js?v=20260703-postgres-cache4"></script>
-    <script src="/static/app.js?v=20260703-postgres-cache4"></script>
+    <script src="/static/api.js?v=20260703-admin-logs"></script>
+    <script src="/static/qualification.js?v=20260703-admin-logs"></script>
+    <script src="/static/app.js?v=20260703-admin-logs"></script>
   </body>
 </html>

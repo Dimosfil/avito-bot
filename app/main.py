@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import deque
 from contextlib import asynccontextmanager, suppress
 from datetime import date
 from pathlib import Path
@@ -51,6 +52,8 @@ bot_worker_enabled = False
 bot_worker_interval_seconds = 5
 runtime_store: RuntimeStore | None = None
 runtime_store_key: tuple[str, str, str] | None = None
+admin_log_sequence = 0
+admin_logs: deque[dict[str, Any]] = deque(maxlen=300)
 bot_activity: dict[str, Any] = {
     "enabled": False,
     "running": False,
@@ -168,6 +171,13 @@ async def storage_status() -> dict[str, object]:
         "backup_interval_seconds": get_settings().backup_interval_seconds,
         "backup_retention_count": get_settings().backup_retention_count,
     }
+
+
+@app.get("/api/admin/logs")
+async def admin_logs_endpoint(limit: int = 100) -> dict[str, Any]:
+    limit = max(1, min(limit, 300))
+    records = list(admin_logs)[-limit:]
+    return {"logs": records, "count": len(records), "max_count": admin_logs.maxlen}
 
 
 @app.post("/api/storage/backup")
@@ -413,6 +423,7 @@ async def bot_autoreply_start() -> dict[str, Any]:
     if not settings.has_avito_credentials:
         raise HTTPException(status_code=400, detail="AVITO_CLIENT_ID and AVITO_CLIENT_SECRET are required")
     bot_worker_enabled = True
+    _record_admin_log("info", "autoreply_start", {"interval_seconds": bot_worker_interval_seconds})
     bot_activity.update(
         {
             "enabled": True,
@@ -431,6 +442,7 @@ async def bot_autoreply_stop() -> dict[str, Any]:
     global bot_worker_enabled
     bot_worker_enabled = False
     bot_activity["enabled"] = False
+    _record_admin_log("info", "autoreply_stop")
     _save_autoreply_enabled(False)
     return _bot_activity_response()
 
@@ -735,6 +747,7 @@ def _migrate_legacy_runtime_json_to_store() -> None:
 def _require_avito_live_sync(settings: Settings | None = None) -> None:
     settings = settings or get_settings()
     if not settings.avito_live_sync_enabled:
+        _record_admin_log("warning", "live_sync_blocked", {"reason": "AVITO_LIVE_SYNC_ENABLED=false"})
         raise HTTPException(status_code=409, detail="Avito live sync is disabled; using PostgreSQL cache only")
 
 
@@ -932,6 +945,7 @@ def _track_bot_control_items(chats: list[dict[str, Any]]) -> None:
 
 def _to_http_error(exc: Exception) -> HTTPException:
     if isinstance(exc, (AvitoConfigError, DeepSeekConfigError, CodexAppServerConfigError)):
+        _record_admin_log("error", "config_error", {"error": str(exc)})
         return HTTPException(status_code=400, detail=str(exc))
     if isinstance(exc, httpx.HTTPStatusError):
         detail: object
@@ -939,8 +953,14 @@ def _to_http_error(exc: Exception) -> HTTPException:
             detail = exc.response.json()
         except ValueError:
             detail = exc.response.text
+        _record_admin_log(
+            "error",
+            "avito_http_status_error",
+            {"status_code": exc.response.status_code, "detail": _safe_log_detail(detail)},
+        )
         return HTTPException(status_code=exc.response.status_code, detail=detail)
     if isinstance(exc, httpx.RequestError):
+        _record_admin_log("error", "avito_request_failed", {"error_type": exc.__class__.__name__})
         return HTTPException(status_code=502, detail=f"Avito request failed: {exc.__class__.__name__}")
     return HTTPException(status_code=500, detail=exc.__class__.__name__)
 
@@ -1158,3 +1178,36 @@ def _error_detail(exc: Exception) -> object:
         except ValueError:
             return exc.response.text
     return str(exc) or exc.__class__.__name__
+
+
+def _record_admin_log(level: str, event: str, detail: Any | None = None) -> None:
+    global admin_log_sequence
+    admin_log_sequence += 1
+    admin_logs.append(
+        {
+            "id": admin_log_sequence,
+            "created_at": time.time(),
+            "level": level,
+            "event": event,
+            "detail": _safe_log_detail(detail),
+        }
+    )
+
+
+def _safe_log_detail(detail: Any | None) -> Any:
+    if detail is None:
+        return None
+    if isinstance(detail, dict):
+        sanitized: dict[str, Any] = {}
+        for key, value in detail.items():
+            key_text = str(key)
+            if any(secret_word in key_text.lower() for secret_word in ("token", "secret", "password", "key")):
+                sanitized[key_text] = "<redacted>"
+            else:
+                sanitized[key_text] = _safe_log_detail(value)
+        return sanitized
+    if isinstance(detail, list):
+        return [_safe_log_detail(item) for item in detail[:20]]
+    if isinstance(detail, (str, int, float, bool)):
+        return detail
+    return str(detail)

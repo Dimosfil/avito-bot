@@ -2,8 +2,10 @@ const output = document.querySelector("#output");
 const connectionLine = document.querySelector("#connectionLine");
 const chatView = document.querySelector("#chatView");
 const statsView = document.querySelector("#statsView");
+const logsView = document.querySelector("#logsView");
 const chatTabButton = document.querySelector("#chatTabButton");
 const statsTabButton = document.querySelector("#statsTabButton");
+const logsTabButton = document.querySelector("#logsTabButton");
 const tokenButton = document.querySelector("#tokenButton");
 const accountButton = document.querySelector("#accountButton");
 const chatsButton = document.querySelector("#chatsButton");
@@ -37,6 +39,9 @@ const statsStatusLine = document.querySelector("#statsStatusLine");
 const statsSummary = document.querySelector("#statsSummary");
 const statsTableHead = document.querySelector(".stats-table thead");
 const statsTableBody = document.querySelector("#statsTableBody");
+const refreshLogsButton = document.querySelector("#refreshLogsButton");
+const logsStatusLine = document.querySelector("#logsStatusLine");
+const adminLogList = document.querySelector("#adminLogList");
 const workspaceResizers = document.querySelectorAll(".workspace-resizer");
 
 let activeChatId = null;
@@ -89,6 +94,7 @@ accountButton.addEventListener("click", loadAccount);
 chatsButton.addEventListener("click", () => loadChats({ refresh: false }));
 chatTabButton.addEventListener("click", () => showView("chats"));
 statsTabButton.addEventListener("click", () => showView("stats"));
+logsTabButton.addEventListener("click", () => showView("logs"));
 processUnreadButton.addEventListener("click", () => processUnread({ show: true }));
 document.querySelector("#aiPingButton").addEventListener("click", pingAi);
 document.querySelector("#webhooksButton").addEventListener("click", loadWebhookEvents);
@@ -106,6 +112,7 @@ autoProcessInput.addEventListener("change", syncServerAutoReply);
 managerTakeoverButton.addEventListener("click", syncChatBotControl);
 refreshStatsItemsButton.addEventListener("click", refreshStatsItems);
 loadStatsButton.addEventListener("click", loadItemStats);
+refreshLogsButton.addEventListener("click", loadAdminLogs);
 statsTableBody.addEventListener("click", handleStatsTableClick);
 statsTableHead.addEventListener("click", handleStatsHeaderClick);
 
@@ -714,13 +721,57 @@ async function loadWebhookEvents() {
   showOutput(await api("/api/webhooks/avito/events"));
 }
 
+async function loadAdminLogs() {
+  logsStatusLine.textContent = "Загружаю логи...";
+  try {
+    const data = await api("/api/admin/logs?limit=100", { quiet: true });
+    renderAdminLogs(data.logs || []);
+    logsStatusLine.textContent = `Событий: ${data.count || 0} / ${data.max_count || 300}`;
+  } catch (error) {
+    logsStatusLine.textContent = error.message;
+    adminLogList.textContent = error.message;
+  }
+}
+
+function renderAdminLogs(logs) {
+  adminLogList.replaceChildren();
+  if (!logs.length) {
+    adminLogList.textContent = "Логов пока нет";
+    return;
+  }
+  [...logs].reverse().forEach((entry) => {
+    const item = document.createElement("article");
+    item.className = `admin-log-item ${entry.level || ""}`.trim();
+
+    const head = document.createElement("div");
+    head.className = "admin-log-head";
+    const time = document.createElement("span");
+    time.textContent = formatEpochTime(entry.created_at) || "unknown time";
+    const event = document.createElement("strong");
+    event.textContent = entry.event || "event";
+    const level = document.createElement("span");
+    level.className = "admin-log-level";
+    level.textContent = entry.level || "info";
+    head.append(time, event, level);
+
+    const detail = document.createElement("pre");
+    detail.textContent = JSON.stringify(entry.detail ?? {}, null, 2);
+    item.append(head, detail);
+    adminLogList.append(item);
+  });
+}
+
 function showView(view, { save = true } = {}) {
   const showStats = view === "stats";
-  chatView.hidden = showStats;
+  const showLogs = view === "logs";
+  chatView.hidden = showStats || showLogs;
   statsView.hidden = !showStats;
-  chatTabButton.classList.toggle("active", !showStats);
+  logsView.hidden = !showLogs;
+  chatTabButton.classList.toggle("active", !showStats && !showLogs);
   statsTabButton.classList.toggle("active", showStats);
+  logsTabButton.classList.toggle("active", showLogs);
   if (showStats) refreshStatsItems();
+  if (showLogs) loadAdminLogs();
   if (save) saveManagerPageState();
 }
 
@@ -747,14 +798,14 @@ function restoreManagerPageState() {
   activeChatId = state.activeChatId || null;
   savedChatListScrollTop = state.chatListScrollTop || 0;
   chatFoldersInitialized = Boolean(activeChatId || openChatFolderKeys.size || openChatBucketKeys.size);
-  showView(state.view === "stats" ? "stats" : "chats", { save: false });
+  showView(["stats", "logs"].includes(state.view) ? state.view : "chats", { save: false });
 }
 
 function loadManagerPageState() {
   try {
     const state = JSON.parse(window.localStorage.getItem(MANAGER_PAGE_STATE_KEY) || "{}");
     return {
-      view: state.view === "stats" ? "stats" : "chats",
+      view: ["stats", "logs"].includes(state.view) ? state.view : "chats",
       activeChatId: state.activeChatId ? String(state.activeChatId) : "",
       chatListScrollTop: Number.isFinite(Number(state.chatListScrollTop)) ? Number(state.chatListScrollTop) : 0,
       openChatFolderKeys: Array.isArray(state.openChatFolderKeys) ? state.openChatFolderKeys.map(String) : [],
@@ -776,7 +827,7 @@ function saveManagerPageState() {
     window.localStorage.setItem(
       MANAGER_PAGE_STATE_KEY,
       JSON.stringify({
-        view: statsView.hidden ? "chats" : "stats",
+        view: logsView.hidden ? (statsView.hidden ? "chats" : "stats") : "logs",
         activeChatId: activeChatId ? String(activeChatId) : "",
         chatListScrollTop: savedChatListScrollTop || chatList.scrollTop || 0,
         openChatFolderKeys: [...openChatFolderKeys],

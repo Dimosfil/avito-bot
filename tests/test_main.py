@@ -119,9 +119,11 @@ def test_process_unread_is_disabled_in_cache_only_mode(monkeypatch) -> None:
     client = TestClient(app)
 
     response = client.post("/api/avito/process-unread")
+    logs = client.get("/api/admin/logs")
 
     assert response.status_code == 409
     assert response.json()["detail"] == "Avito live sync is disabled; using PostgreSQL cache only"
+    assert any(item["event"] == "live_sync_blocked" for item in logs.json()["logs"])
 
 
 def test_chat_bot_control_roundtrip() -> None:
