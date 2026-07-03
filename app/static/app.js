@@ -46,6 +46,7 @@ let activeMessagesFingerprint = "";
 let activeChatRequestId = 0;
 let loadingChatId = null;
 let avitoCredentialsReady = false;
+let avitoLiveSyncEnabled = true;
 let automationBusy = false;
 let groupBotControlBusy = false;
 let pollingTimer = null;
@@ -85,7 +86,7 @@ const SERVICE_PURCHASE_TRIGGER_PATTERNS = compileServicePurchaseTriggerPatterns(
 document.querySelector("#refreshStatusButton").addEventListener("click", refreshStatus);
 tokenButton.addEventListener("click", checkToken);
 accountButton.addEventListener("click", loadAccount);
-chatsButton.addEventListener("click", loadChats);
+chatsButton.addEventListener("click", () => loadChats({ refresh: false }));
 chatTabButton.addEventListener("click", () => showView("chats"));
 statsTabButton.addEventListener("click", () => showView("stats"));
 processUnreadButton.addEventListener("click", () => processUnread({ show: true }));
@@ -118,7 +119,7 @@ async function initialize() {
   await syncQualifiedBuyingChatIdsFromServer();
   if (status.avito_client_id_configured && status.avito_client_secret_configured) {
     try {
-      await loadChats();
+      await loadChats({ refresh: false });
       await restoreActiveChat();
       refreshStatsItems();
       await syncServerAutoReply();
@@ -134,6 +135,7 @@ async function refreshStatus() {
   showOutput(data);
   const ready = data.avito_client_id_configured && data.avito_client_secret_configured;
   avitoCredentialsReady = ready;
+  avitoLiveSyncEnabled = data.avito_live_sync_enabled !== false;
   const aiProvider = data.ai_provider || "deepseek";
   const aiStatus =
     aiProvider === "codex_app_server"
@@ -149,11 +151,13 @@ async function refreshStatus() {
 
 async function checkToken() {
   if (!ensureAvitoReady()) return;
+  if (!ensureAvitoLiveSync({ show: true })) return;
   showOutput(await api("/api/avito/token-check", { method: "POST" }));
 }
 
 async function loadAccount() {
   if (!ensureAvitoReady()) return;
+  if (!ensureAvitoLiveSync({ show: true })) return;
   showOutput(await api("/api/avito/account"));
 }
 
@@ -161,11 +165,12 @@ async function pingAi() {
   showOutput(await api("/api/ai/ping", { method: "POST" }));
 }
 
-async function loadChats({ show = true } = {}) {
+async function loadChats({ show = true, refresh = false } = {}) {
   if (!ensureAvitoReady({ show })) return;
   const params = new URLSearchParams({
     limit: "20",
     unread_only: unreadOnlyInput.checked ? "true" : "false",
+    refresh: refresh ? "true" : "false",
   });
   const data = await api(`/api/avito/chats?${params.toString()}`);
   if (show) showOutput(data);
@@ -206,9 +211,9 @@ async function loadMessages(
     if (resetDraft) hideDraft();
     conversationTitle.textContent = chatId;
     updateClientProfileLink(activeChat);
-    messageInput.disabled = false;
-    sendButton.disabled = false;
-    readButton.disabled = false;
+    messageInput.disabled = !avitoLiveSyncEnabled;
+    sendButton.disabled = !avitoLiveSyncEnabled;
+    readButton.disabled = !avitoLiveSyncEnabled;
     applyChatBotControlState(getCachedChatBotControl(chatId), { setActivity: false });
     managerTakeoverButton.disabled = false;
     draftButton.disabled = true;
@@ -217,8 +222,8 @@ async function loadMessages(
   }
 
   try {
-    const chat = await api(`/api/avito/chats/${encodeURIComponent(chatId)}`);
-    const data = await api(`/api/avito/chats/${encodeURIComponent(chatId)}/messages?limit=50`);
+    const chat = activeChat || (await api(`/api/avito/chats/${encodeURIComponent(chatId)}?refresh=false`));
+    const data = await api(`/api/avito/chats/${encodeURIComponent(chatId)}/messages?limit=50&refresh=false`);
     if (requestId !== activeChatRequestId || String(activeChatId) !== String(chatId)) return;
     activeChat = mergeChatDetails(activeChat, chat);
     updateClientProfileLink(activeChat);
@@ -450,6 +455,7 @@ function setManagerTakeoverPressed(pressed) {
 
 async function processUnread({ show = false } = {}) {
   if (!ensureAvitoReady({ show })) return;
+  if (!ensureAvitoLiveSync({ show })) return;
   if (automationBusy) return;
   automationBusy = true;
   processUnreadButton.disabled = true;
@@ -497,6 +503,11 @@ function startPolling() {
 async function syncServerAutoReply() {
   if (!ensureAvitoReady({ show: false })) {
     autoProcessInput.checked = false;
+    return;
+  }
+  if (!ensureAvitoLiveSync({ show: false })) {
+    autoProcessInput.checked = false;
+    setAutomationLine("Auto reply off: PostgreSQL cache mode");
     return;
   }
   const endpoint = autoProcessInput.checked ? "/api/bot/autoreply/start" : "/api/bot/autoreply/stop";
@@ -587,9 +598,17 @@ function updateBotActivityFromProcessing(data) {
 }
 
 function updateAvitoControls(ready) {
-  [tokenButton, accountButton, chatsButton, processUnreadButton, autoProcessInput].forEach((control) => {
-    control.disabled = !ready;
+  chatsButton.disabled = !ready;
+  [tokenButton, accountButton, processUnreadButton, autoProcessInput].forEach((control) => {
+    control.disabled = !ready || !avitoLiveSyncEnabled;
   });
+
+  if (ready && !avitoLiveSyncEnabled) {
+    autoProcessInput.checked = false;
+    setAutomationLine("PostgreSQL cache mode");
+    setBotActivity("Live Avito sync is disabled; chats are loaded from PostgreSQL.");
+    return;
+  }
 
   if (ready) return;
 
@@ -622,6 +641,15 @@ function ensureAvitoReady({ show = true } = {}) {
   if (show) showOutput({ error: "Avito credentials are not configured", detail: message });
   setAutomationLine("Avito credentials required");
   setBotActivity("Авито-бот не может работать без AVITO_CLIENT_ID и AVITO_CLIENT_SECRET.", "error");
+  return false;
+}
+
+function ensureAvitoLiveSync({ show = true } = {}) {
+  if (avitoLiveSyncEnabled) return true;
+  const message = "Avito live sync is disabled; using PostgreSQL cache only.";
+  if (show) showOutput({ error: message });
+  setAutomationLine("PostgreSQL cache mode");
+  setBotActivity(message, "active");
   return false;
 }
 

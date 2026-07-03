@@ -14,6 +14,7 @@ def clear_runtime_state(tmp_path, monkeypatch):
     monkeypatch.setattr(main_module, "BOT_CONTROL_STATE_PATH", tmp_path / "bot-control-state.json")
     monkeypatch.setenv("AVITO_DATABASE_PATH", str(tmp_path / "avito-bot.sqlite3"))
     monkeypatch.setenv("AVITO_BACKUP_DIR", str(tmp_path / "backups"))
+    monkeypatch.setenv("AVITO_LIVE_SYNC_ENABLED", "true")
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("SHARED_DIR", raising=False)
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
@@ -76,6 +77,51 @@ def test_webhook_echo_storage() -> None:
     assert response.json() == {"ok": True}
     assert events.status_code == 200
     assert events.json()["events"][0]["value"]["id"] == "1"
+
+
+def test_cached_chats_and_messages_load_from_storage_without_avito(monkeypatch) -> None:
+    class FailingAvitoClient:
+        def __init__(self, settings) -> None:
+            self.settings = settings
+
+        async def get_chats(self, limit: int = 20, offset: int = 0, unread_only: bool = False):
+            raise AssertionError("cached chats must not call Avito")
+
+        async def get_chat(self, chat_id: str):
+            raise AssertionError("cached chat must not call Avito")
+
+        async def get_messages(self, chat_id: str, limit: int = 50, offset: int = 0):
+            raise AssertionError("cached messages must not call Avito")
+
+    monkeypatch.setattr("app.main.AvitoClient", FailingAvitoClient)
+    store = main_module.get_runtime_store()
+    store.upsert_avito_chats([{"id": "chat-1", "updated": 10}])
+    store.upsert_avito_messages(
+        "chat-1",
+        [{"id": "message-1", "created": 10, "direction": "in", "type": "text", "content": {"text": "hello"}}],
+    )
+    client = TestClient(app)
+
+    chats = client.get("/api/avito/chats?refresh=false")
+    chat = client.get("/api/avito/chats/chat-1?refresh=false")
+    messages = client.get("/api/avito/chats/chat-1/messages?limit=50&refresh=false")
+
+    assert chats.status_code == 200
+    assert chats.json()["source"] == "cache"
+    assert chats.json()["chats"][0]["id"] == "chat-1"
+    assert chat.json()["source"] == "cache"
+    assert messages.json()["source"] == "cache"
+    assert messages.json()["messages"][0]["id"] == "message-1"
+
+
+def test_process_unread_is_disabled_in_cache_only_mode(monkeypatch) -> None:
+    monkeypatch.setenv("AVITO_LIVE_SYNC_ENABLED", "false")
+    client = TestClient(app)
+
+    response = client.post("/api/avito/process-unread")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Avito live sync is disabled; using PostgreSQL cache only"
 
 
 def test_chat_bot_control_roundtrip() -> None:

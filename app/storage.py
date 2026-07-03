@@ -4,10 +4,12 @@ import hashlib
 import json
 import os
 import sqlite3
+import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 from urllib.parse import urlparse
 
 from app.avito_payload import author_role, chat_item_context, chat_item_key, message_text, safe_int
@@ -40,6 +42,9 @@ class RuntimeStore:
         self.sqlite_path = sqlite_path
         self.backup_dir = backup_dir
         self.backend = "postgres" if database_url and _is_postgres_url(database_url) else "sqlite"
+        self._schema_ready = False
+        self._postgres_lock = threading.RLock()
+        self._postgres_con: Any | None = None
         if self.backend == "sqlite" and sqlite_path is None:
             self.sqlite_path = _sqlite_path_from_url(database_url) if database_url else None
         if self.backend == "sqlite" and self.sqlite_path is None:
@@ -58,8 +63,11 @@ class RuntimeStore:
         return (self.backend, str(self.database_url or self.sqlite_path), str(self.backup_dir))
 
     def ensure_schema(self) -> None:
+        if self._schema_ready:
+            return
         if self.backend == "postgres":
             self._ensure_postgres_schema()
+            self._schema_ready = True
             return
         assert self.sqlite_path is not None
         self.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
@@ -115,6 +123,7 @@ class RuntimeStore:
                 "INSERT OR REPLACE INTO app_meta(key, value) VALUES('schema_version', ?)",
                 (SCHEMA_VERSION,),
             )
+        self._schema_ready = True
 
     def get_state(self, key: str) -> Any | None:
         self.ensure_schema()
@@ -245,6 +254,103 @@ class RuntimeStore:
                 """,
                 rows,
             )
+
+    def list_avito_chats(self, *, limit: int = 20, offset: int = 0, unread_only: bool = False) -> list[dict[str, Any]]:
+        self.ensure_schema()
+        limit = max(1, min(limit, 100))
+        offset = max(0, offset)
+        rows: list[tuple[str, str]]
+        if self.backend == "postgres":
+            with self._postgres_connection() as con:
+                with con.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT external_chat_id, payload_json
+                        FROM conversations
+                        WHERE channel = %s
+                        ORDER BY updated_at DESC, id DESC
+                        LIMIT %s OFFSET %s
+                        """,
+                        ("avito", limit, offset),
+                    )
+                    rows = cur.fetchall()
+        else:
+            assert self.sqlite_path is not None
+            with sqlite3.connect(self.sqlite_path) as con:
+                rows = con.execute(
+                    """
+                    SELECT external_chat_id, payload_json
+                    FROM conversations
+                    WHERE channel = ?
+                    ORDER BY updated_at DESC, id DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    ("avito", limit, offset),
+                ).fetchall()
+        chats = [_payload_with_id(payload_json, chat_id) for chat_id, payload_json in rows]
+        if unread_only:
+            chats = [chat for chat in chats if _chat_has_unread(chat)]
+        return chats
+
+    def get_avito_chat(self, chat_id: str) -> dict[str, Any] | None:
+        self.ensure_schema()
+        if self.backend == "postgres":
+            with self._postgres_connection() as con:
+                with con.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT payload_json
+                        FROM conversations
+                        WHERE channel = %s AND external_chat_id = %s
+                        """,
+                        ("avito", chat_id),
+                    )
+                    row = cur.fetchone()
+        else:
+            assert self.sqlite_path is not None
+            with sqlite3.connect(self.sqlite_path) as con:
+                row = con.execute(
+                    """
+                    SELECT payload_json
+                    FROM conversations
+                    WHERE channel = ? AND external_chat_id = ?
+                    """,
+                    ("avito", chat_id),
+                ).fetchone()
+        return _payload_with_id(row[0], chat_id) if row else None
+
+    def list_avito_messages(self, chat_id: str, *, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+        self.ensure_schema()
+        limit = max(1, min(limit, 100))
+        offset = max(0, offset)
+        if self.backend == "postgres":
+            with self._postgres_connection() as con:
+                with con.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT payload_json
+                        FROM messages
+                        WHERE channel = %s AND external_chat_id = %s
+                        ORDER BY COALESCE(created_at, received_at), id
+                        LIMIT %s OFFSET %s
+                        """,
+                        ("avito", chat_id, limit, offset),
+                    )
+                    rows = cur.fetchall()
+        else:
+            assert self.sqlite_path is not None
+            with sqlite3.connect(self.sqlite_path) as con:
+                rows = con.execute(
+                    """
+                    SELECT payload_json
+                    FROM messages
+                    WHERE channel = ? AND external_chat_id = ?
+                    ORDER BY COALESCE(created_at, received_at), id
+                    LIMIT ? OFFSET ?
+                    """,
+                    ("avito", chat_id, limit, offset),
+                ).fetchall()
+        return [_json_payload(row[0]) for row in rows]
 
     def record_manager_action(self, chat_id: str, action_type: str, payload: dict[str, Any]) -> None:
         self.ensure_schema()
@@ -388,13 +494,22 @@ class RuntimeStore:
                     (SCHEMA_VERSION,),
                 )
 
-    def _postgres_connection(self):
+    @contextmanager
+    def _postgres_connection(self) -> Iterator[Any]:
         try:
             import psycopg
         except ImportError as exc:  # pragma: no cover - depends on deployment env
             raise RuntimeError("PostgreSQL storage requires psycopg. Run dependency install after updating pyproject.") from exc
         assert self.database_url is not None
-        return psycopg.connect(self.database_url)
+        with self._postgres_lock:
+            if self._postgres_con is None or self._postgres_con.closed:
+                self._postgres_con = psycopg.connect(self.database_url, connect_timeout=10)
+            try:
+                yield self._postgres_con
+                self._postgres_con.commit()
+            except Exception:
+                self._postgres_con.rollback()
+                raise
 
     def _export_json_backup(self, backup_path: Path) -> None:
         export = self.export_data()
@@ -730,6 +845,32 @@ def _message_row(chat_id: str, message: dict[str, Any]) -> tuple[Any, ...]:
 def _stable_message_key(message: dict[str, Any]) -> str:
     payload = json.dumps(message, ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
+
+
+def _json_payload(payload_json: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(payload_json)
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _payload_with_id(payload_json: str, fallback_id: str) -> dict[str, Any]:
+    payload = _json_payload(payload_json)
+    payload.setdefault("id", fallback_id)
+    return payload
+
+
+def _chat_has_unread(chat: dict[str, Any]) -> bool:
+    if chat.get("unread_count"):
+        return True
+    last_message = chat.get("last_message")
+    if isinstance(last_message, dict):
+        if last_message.get("isRead") is False or last_message.get("read") is False:
+            return True
+        if last_message.get("direction") == "in" and not last_message.get("read"):
+            return True
+    return False
 
 
 def _rows(tables: dict[str, Any], table: str) -> list[dict[str, Any]]:

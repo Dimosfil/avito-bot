@@ -67,6 +67,10 @@ async def _restore_bot_worker_state() -> None:
     if not _load_autoreply_enabled():
         return
     settings = get_settings()
+    if not settings.avito_live_sync_enabled:
+        _save_autoreply_enabled(False)
+        bot_activity["last_error"] = "Avito live sync is disabled"
+        return
     if not settings.has_avito_credentials:
         bot_activity["last_error"] = "AVITO_CLIENT_ID and AVITO_CLIENT_SECRET are required"
         return
@@ -206,6 +210,7 @@ async def ai_draft_reply(request: DraftReplyRequest) -> dict[str, Any]:
 
 @app.post("/api/avito/token-check")
 async def avito_token_check() -> dict[str, object]:
+    _require_avito_live_sync()
     client = AvitoClient(get_settings())
     try:
         token = await client.get_access_token()
@@ -220,6 +225,7 @@ async def avito_token_check() -> dict[str, object]:
 
 @app.get("/api/avito/account")
 async def avito_account() -> dict[str, Any]:
+    _require_avito_live_sync()
     client = AvitoClient(get_settings())
     try:
         return await client.get_account_self()
@@ -228,7 +234,20 @@ async def avito_account() -> dict[str, Any]:
 
 
 @app.get("/api/avito/chats")
-async def avito_chats(limit: int = 20, offset: int = 0, unread_only: bool = False) -> dict[str, Any]:
+async def avito_chats(
+    limit: int = 20,
+    offset: int = 0,
+    unread_only: bool = False,
+    refresh: bool = True,
+) -> dict[str, Any]:
+    if not refresh or not get_settings().avito_live_sync_enabled:
+        chats = get_runtime_store().list_avito_chats(limit=limit, offset=offset, unread_only=unread_only)
+        _track_bot_control_items(chats)
+        return {
+            "chats": chats,
+            "source": "cache",
+            "qualified_buying_chat_ids": sorted(_load_qualified_buying_chat_ids()),
+        }
     client = AvitoClient(get_settings())
     try:
         response = await client.get_chats(limit=limit, offset=offset, unread_only=unread_only)
@@ -242,7 +261,12 @@ async def avito_chats(limit: int = 20, offset: int = 0, unread_only: bool = Fals
 
 
 @app.get("/api/avito/chats/{chat_id}")
-async def avito_chat(chat_id: str) -> dict[str, Any]:
+async def avito_chat(chat_id: str, refresh: bool = True) -> dict[str, Any]:
+    if not refresh or not get_settings().avito_live_sync_enabled:
+        cached = get_runtime_store().get_avito_chat(chat_id)
+        if cached is not None:
+            return {**cached, "source": "cache"}
+        raise HTTPException(status_code=404, detail="Chat is not available in PostgreSQL cache")
     client = AvitoClient(get_settings())
     try:
         response = await client.get_chat(chat_id)
@@ -253,7 +277,12 @@ async def avito_chat(chat_id: str) -> dict[str, Any]:
 
 
 @app.get("/api/avito/chats/{chat_id}/messages")
-async def avito_messages(chat_id: str, limit: int = 50, offset: int = 0) -> dict[str, Any]:
+async def avito_messages(chat_id: str, limit: int = 50, offset: int = 0, refresh: bool = True) -> dict[str, Any]:
+    if not refresh or not get_settings().avito_live_sync_enabled:
+        messages = get_runtime_store().list_avito_messages(chat_id, limit=limit, offset=offset)
+        if messages:
+            return {"messages": messages, "source": "cache"}
+        return {"messages": [], "source": "cache"}
     client = AvitoClient(get_settings())
     try:
         response = await client.get_messages(chat_id, limit=limit, offset=offset)
@@ -265,6 +294,7 @@ async def avito_messages(chat_id: str, limit: int = 50, offset: int = 0) -> dict
 
 @app.post("/api/avito/chats/{chat_id}/messages")
 async def avito_send_message(chat_id: str, request: SendMessageRequest) -> dict[str, Any]:
+    _require_avito_live_sync()
     client = AvitoClient(get_settings())
     try:
         response = await client.send_text_message(chat_id, request.text)
@@ -280,6 +310,7 @@ async def avito_send_message(chat_id: str, request: SendMessageRequest) -> dict[
 
 @app.post("/api/avito/chats/{chat_id}/read")
 async def avito_mark_read(chat_id: str) -> dict[str, Any]:
+    _require_avito_live_sync()
     client = AvitoClient(get_settings())
     try:
         return await client.mark_chat_read(chat_id)
@@ -348,11 +379,15 @@ async def avito_save_qualified_buying_chats(request: QualifiedBuyingChatsRequest
 @app.post("/api/avito/chats/{chat_id}/ai-draft")
 async def avito_ai_draft(chat_id: str) -> dict[str, Any]:
     settings = get_settings()
-    avito = AvitoClient(settings)
     assistant = SalesAssistant(create_ai_client(settings))
     try:
-        chat = await avito.get_chat(chat_id)
-        messages = await avito.get_messages(chat_id, limit=30)
+        if settings.avito_live_sync_enabled:
+            avito = AvitoClient(settings)
+            chat = await avito.get_chat(chat_id)
+            messages = await avito.get_messages(chat_id, limit=30)
+        else:
+            chat = get_runtime_store().get_avito_chat(chat_id) or {"id": chat_id}
+            messages = {"messages": get_runtime_store().list_avito_messages(chat_id, limit=30)}
         draft = await assistant.draft_reply(chat, messages)
     except Exception as exc:
         raise _to_http_error(exc) from exc
@@ -365,6 +400,7 @@ async def avito_ai_draft(chat_id: str) -> dict[str, Any]:
 
 @app.post("/api/avito/process-unread")
 async def avito_process_unread(limit: int = 20) -> dict[str, Any]:
+    _require_avito_live_sync()
     async with process_unread_lock:
         return await _process_unread(limit=limit)
 
@@ -373,6 +409,7 @@ async def avito_process_unread(limit: int = 20) -> dict[str, Any]:
 async def bot_autoreply_start() -> dict[str, Any]:
     global bot_worker_enabled, bot_worker_task
     settings = get_settings()
+    _require_avito_live_sync(settings)
     if not settings.has_avito_credentials:
         raise HTTPException(status_code=400, detail="AVITO_CLIENT_ID and AVITO_CLIENT_SECRET are required")
     bot_worker_enabled = True
@@ -693,6 +730,12 @@ def _migrate_legacy_runtime_json_to_store() -> None:
         state = _load_json_file(BOT_CONTROL_STATE_PATH, default={})
         if isinstance(state, dict):
             store.set_state("bot_control", state)
+
+
+def _require_avito_live_sync(settings: Settings | None = None) -> None:
+    settings = settings or get_settings()
+    if not settings.avito_live_sync_enabled:
+        raise HTTPException(status_code=409, detail="Avito live sync is disabled; using PostgreSQL cache only")
 
 
 def _load_json_file(path: Path, *, default: Any) -> Any:

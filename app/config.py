@@ -30,6 +30,7 @@ class Settings:
     telegram_bot_token: str | None = None
     manager_telegram_chat_id: str | None = None
     telegram_notify_timeout_seconds: int = 5
+    avito_live_sync_enabled: bool = True
     avito_base_url: str = "https://api.avito.ru"
     deepseek_base_url: str = "https://api.deepseek.com"
 
@@ -40,6 +41,7 @@ class Settings:
             avito_client_secret=_blank_to_none(os.getenv("AVITO_CLIENT_SECRET")),
             avito_user_id=_blank_to_none(os.getenv("AVITO_USER_ID")),
             avito_webhook_url=_blank_to_none(os.getenv("AVITO_WEBHOOK_URL")),
+            avito_live_sync_enabled=_bool_from_env(os.getenv("AVITO_LIVE_SYNC_ENABLED"), True),
             ai_provider=(os.getenv("AI_PROVIDER", "deepseek").strip() or "deepseek"),
             deepseek_api_key=_blank_to_none(os.getenv("DEEPSEEK_API_KEY")),
             deepseek_model=os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash").strip() or "deepseek-v4-flash",
@@ -67,6 +69,7 @@ class Settings:
             "avito_client_secret_configured": bool(self.avito_client_secret),
             "avito_user_id_configured": bool(self.avito_user_id),
             "avito_webhook_url_configured": bool(self.avito_webhook_url),
+            "avito_live_sync_enabled": self.avito_live_sync_enabled,
             "avito_client_id_preview": mask_value(self.avito_client_id),
             "ai_provider": self.ai_provider,
             "deepseek_api_key_configured": bool(self.deepseek_api_key),
@@ -111,3 +114,9 @@ def _positive_int(value: str | None, default: int) -> int:
     except ValueError:
         return default
     return parsed if parsed > 0 else default
+
+
+def _bool_from_env(value: str | None, default: bool) -> bool:
+    if value is None or not value.strip():
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}

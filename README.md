@@ -150,6 +150,15 @@ snapshots:
 - last seen Avito chats and messages;
 - manager and bot actions used as an audit trail.
 
+The manager UI opens from runtime storage first so previously synced chats and
+messages appear immediately from SQLite/PostgreSQL. Manual chat refreshes still
+query Avito and then update the runtime store.
+
+Set `AVITO_LIVE_SYNC_ENABLED=false` to run the UI in PostgreSQL/SQLite cache
+mode only. In that mode chat browsing and AI drafts use stored runtime data,
+while live Avito polling, token/account checks, manual unread processing, and
+server-side auto reply are disabled.
+
 Storage selection:
 
 - `DATABASE_URL` set to PostgreSQL: use the managed PostgreSQL database. This is

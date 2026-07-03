@@ -61,6 +61,21 @@ def test_runtime_store_import_data_preserves_rows_without_duplicates(tmp_path) -
         assert con.execute("SELECT count(*) FROM manager_actions").fetchone()[0] == 1
 
 
+def test_sqlite_store_lists_cached_avito_chats_and_messages(tmp_path) -> None:
+    store = RuntimeStore(database_url=None, sqlite_path=tmp_path / "state.sqlite3", backup_dir=tmp_path / "backups")
+    store.upsert_avito_chats([{"id": "chat-1", "updated": 10, "last_message": {"direction": "in", "read": False}}])
+    store.upsert_avito_messages(
+        "chat-1",
+        [{"id": "message-1", "created": 10, "direction": "in", "type": "text", "content": {"text": "hello"}}],
+    )
+
+    chats = store.list_avito_chats(unread_only=True)
+    messages = store.list_avito_messages("chat-1")
+
+    assert chats[0]["id"] == "chat-1"
+    assert messages[0]["id"] == "message-1"
+
+
 def test_shared_dir_defaults_for_sqlite_and_backups(tmp_path) -> None:
     settings = Settings(
         avito_client_id=None,

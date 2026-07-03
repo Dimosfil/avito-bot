@@ -1,5 +1,5 @@
 from app.ai_client import FallbackAIClient
-from app.config import Settings, mask_value
+from app.config import Settings, get_settings, mask_value
 from app.codex_app_server_client import CodexAppServerClient
 from app.main import create_ai_client
 
@@ -30,6 +30,14 @@ def test_public_status_does_not_expose_secret() -> None:
     assert "deepseek-secret" not in str(status)
     assert status["ai_provider"] == "deepseek"
     assert status["codex_app_server_configured"] is False
+
+
+def test_avito_live_sync_flag_can_disable_live_api(monkeypatch) -> None:
+    monkeypatch.setenv("AVITO_LIVE_SYNC_ENABLED", "false")
+
+    status = get_settings().public_status()
+
+    assert status["avito_live_sync_enabled"] is False
 
 
 def test_create_ai_client_defaults_to_deepseek() -> None:
