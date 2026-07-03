@@ -57,6 +57,15 @@ class BotRules:
 MARKDOWN_EMPHASIS_RE = re.compile(r"(?<!\*)\*\*([^*\n]+?)\*\*(?!\*)|(?<!_)__([^_\n]+?)__(?!_)")
 INLINE_CODE_RE = re.compile(r"`([^`\n]+?)`")
 MARKDOWN_HEADING_RE = re.compile(r"(?m)^\s{0,3}#{1,6}\s+")
+FEMININE_SELF_REFERENCE_REPLACEMENTS = (
+    (re.compile(r"\b([Яя]\s+)готов\b"), r"\1готова"),
+    (re.compile(r"\b([Ии]\s+)готов\b"), r"\1готова"),
+    (re.compile(r"(?m)(^|[.!?]\s+)Готов\b"), r"\1Готова"),
+    (re.compile(r"(?m)(^|[.!?]\s+)готов\b"), r"\1готова"),
+    (re.compile(r"\b([Яя]\s+)мог\b"), r"\1могла"),
+    (re.compile(r"\b([Яя]\s+)подобрал\b"), r"\1подобрала"),
+    (re.compile(r"\b([Яя]\s+)уточнил\b"), r"\1уточнила"),
+)
 OUTGOING_TEXT_TRANSLATION = str.maketrans(
     {
         "\ufeff": "",
@@ -211,6 +220,13 @@ def sanitize_outgoing_text(text: str) -> str:
     cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
     cleaned = re.sub(r"\n[ \t]+", "\n", cleaned)
     return cleaned.strip()
+
+
+def enforce_seller_feminine_voice(text: str) -> str:
+    cleaned = text
+    for pattern, replacement in FEMININE_SELF_REFERENCE_REPLACEMENTS:
+        cleaned = pattern.sub(replacement, cleaned)
+    return cleaned
 
 
 def redact_admin_code(text: str) -> str:

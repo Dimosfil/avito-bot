@@ -56,7 +56,14 @@
   start covers the project. For local web/API services, resolve the service id,
   port, URL, and neighboring endpoints through config-service before running a
   start command; fixed ports in local runbooks or examples do not authorize a
-  fallback bind. If a config-service record is missing, use only the documented
+  fallback bind. If the resolved port is occupied, verify whether the owner is
+  the same documented service instance using project-local identity signals
+  such as service id, command, cwd, health endpoint, or process metadata. If the
+  port belongs to another service or ownership is unclear, stop and report the
+  port-conflict blocker; do not stop the owner without explicit user approval
+  and do not move the requested app to another port. If the owner is the same
+  service, restart or reuse it only through the documented run contract. If a
+  config-service record is missing, use only the documented
   config-service registration workflow from `08-config-service-and-task-manager`
   to create or update it before startup, or stop with the exact missing
   contract. If local instructions define a preferred start/restart command that
@@ -80,6 +87,28 @@
   their hosting or production deploy contract and are not restarted by local
   `gi reboot` unless project-local production instructions explicitly define
   that behavior.
+- Treat `gi docker`, `ги докер`, and equivalent Docker restart wording as a
+  request to restart the current project's documented Docker or Docker Compose
+  runtime, rebuilding first only when local Docker state requires it. Read
+  project-local Docker/run instructions, Dockerfile or Containerfile,
+  `compose.yaml`, `compose.yml`, `docker-compose*.yml`, container scripts,
+  manifests, service records, and project memory before touching containers. If
+  the project has no Docker/Compose config and no documented Docker run
+  contract, report that Docker is not configured for this project and stop
+  instead of inventing commands. If Docker CLI, Docker Compose, or the Docker
+  engine is unavailable or not running, report that blocker and do not claim a
+  restart. Rebuild before restart when the image is missing, the local Docker
+  contract says to rebuild, Dockerfile/Compose/build-context/dependency
+  manifests changed since the known running image, or freshness cannot be
+  confidently proven. Prefer project-documented commands; otherwise use the
+  narrow project Compose operation, such as `docker compose up -d --build` when
+  rebuilding is needed and `docker compose up -d` or the documented restart
+  command when the existing image is current. Scope all operations to the
+  current project only: do not prune Docker system state, remove volumes, delete
+  images, or stop unrelated containers. After the operation, verify documented
+  container status, health checks, mapped service URLs, and recent logs when
+  failures appear, then report rebuilt/restarted/not-configured/blocked status
+  with evidence.
 - Treat `gi first test`, `gi первый тест`, and `ги первый тест` as requests to
   verify the current application's first-launch experience by resetting only
   documented project-owned app cache, generated state, temporary first-run
@@ -110,6 +139,23 @@
   manifests, runbooks, test configs, and source entry points needed to identify
   exact current commands, services, app set, ports, routes, payloads,
   environment variables, storage, auth, queues, workers, and health checks.
+  Before executing the verification ladder, restore the project-owned runtime
+  state to the documented default/factory baseline using the same reset contract
+  as `gi default`, while preserving only project-local exclusions that are
+  explicitly documented for the current project. Examples of exclusions may
+  include secrets, production-local state, user data, configured external
+  service credentials, or named persistent fixtures; browser `localStorage`,
+  cookies, IndexedDB, generated test databases, runtime logs, queues, temporary
+  worker state, and app caches are not exclusions unless the current project's
+  reset contract says so. If the project has no documented reset targets or the
+  reset would touch ambiguous user-owned data, stop with that blocker instead
+  of running a dirty-state test. After reset, read back the effective runtime
+  configuration from the project-local source of truth, such as config files,
+  backend state, service discovery, or database metadata. UI-only browser state
+  is not a valid source of truth for selected chain, preset, execution mode,
+  ports, task, or service endpoints; if the live test depends on such a value,
+  persist it through the documented backend or project-local config first, or
+  report the missing contract as the blocker.
   Start or restart documented apps when needed, run the verification ladder
   through the broadest documented suite justified by the command, and report
   the task used, commands run, results, blockers, and unverified areas. For
@@ -133,26 +179,45 @@
   reset, cleanup, first-run, run, backup, and test instructions first. Use only
   documented reset scripts, paths, keys, or contracts for project-owned app
   state, generated caches, local settings, onboarding flags, temporary profiles,
-  and other rebuildable state. Do not delete source files, project-memory
-  specifications, instruction-kit files, user documents, production data,
-  secrets, credentials, external service data, shared system caches, sibling
-  projects, or arbitrary user-home folders. If reset targets are not documented,
-  ask one short clarification question instead of guessing. If a reset could be
-  irreversible or remove user-owned data, stop for explicit confirmation and
-  prefer a backup or rename step when local rules allow it. After reset, start
-  the project through documented run instructions, verify the default or
-  first-launch success signals, and report what was reset, what was left
+  runtime logs, queues, worker state, generated test databases, browser storage
+  for the app origin, and other rebuildable state. Preserve only exclusions
+  explicitly documented by the current project; do not infer exclusions from old
+  chat, screenshots, stale run artifacts, or browser state. Do not delete source
+  files, project-memory specifications, instruction-kit files, user documents,
+  production data, secrets, credentials, external service data, shared system
+  caches, sibling projects, or arbitrary user-home folders. If reset targets are
+  not documented, ask one short clarification question instead of guessing. If a
+  reset could be irreversible or remove user-owned data, stop for explicit
+  confirmation and prefer a backup or rename step when local rules allow it.
+  After reset, start the project through documented run instructions, verify the
+  default or first-launch success signals, and report what was reset, what was left
   untouched, what passed, and any blocker.
 - Treat `gi install`, `gi инсталл`, `ги инсталл`, and obvious typo variants
   such as `gi иснтлл` as requests to build the current project and produce an
-  installer. Use Inno Setup by default when no installer tool is named. If the
+  installer. Use Windows as the default target platform when the user and the
+  project-local packaging contract do not name a different platform. For
+  Windows, use Inno Setup by default when no installer tool is named. If the
   user writes a program after `gi install` / `gi инсталл`, use that program as
-  the preferred packaging tool. Read project-local build and packaging
-  instructions, scripts, manifests, and installer configs first. Resolve the
-  application version from project-local metadata such as manifests, package
-  files, assembly attributes, release files, or installer configs before
-  packaging; update the version in build output, installer metadata, and the
-  installer filename or artifact name when the local tooling supports it.
+  the preferred packaging tool. If the user names macOS, iOS, Android, Linux,
+  or another platform, or the project-local packaging contract selects one,
+  follow that platform's local build, signing, packaging, and artifact
+  verification contract instead of falling back to Windows. Ask a short
+  clarification question if the named platform is supported by the project but
+  its packaging contract is missing or ambiguous. Read project-local build and
+  packaging instructions, scripts, manifests, and installer configs first.
+  Keep build instructions, packaging configs, signing/notarization/provisioning
+  notes, verification notes, and produced installer artifacts separated by
+  target platform in project-local folders or per-platform artifact manifests.
+  Follow the project's existing packaging layout when it has one; when creating
+  or repairing a layout, use platform-specific folders such as
+  `packaging/windows/`, `packaging/macos/`, `packaging/ios/`,
+  `packaging/android/`, `packaging/linux/`, or equivalent project-local names.
+  Do not mix artifacts for different platforms in one unscoped output folder.
+  Resolve the application version from project-local metadata such as
+  manifests, package files, assembly attributes, release files, or installer
+  configs before packaging; update the version in build output, installer
+  metadata, and the installer filename or artifact name when the local tooling
+  supports it.
   `restore`, dependency install, build, and test checks are prerequisites only:
   they do not complete `gi install` unless the packaging command also runs and
   a current installer artifact is produced or explicitly verified. Do not report

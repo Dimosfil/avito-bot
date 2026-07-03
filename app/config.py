@@ -27,6 +27,9 @@ class Settings:
     shared_dir: str | None = None
     backup_interval_seconds: int = 21600
     backup_retention_count: int = 14
+    telegram_bot_token: str | None = None
+    manager_telegram_chat_id: str | None = None
+    telegram_notify_timeout_seconds: int = 5
     avito_base_url: str = "https://api.avito.ru"
     deepseek_base_url: str = "https://api.deepseek.com"
 
@@ -49,6 +52,9 @@ class Settings:
             shared_dir=_blank_to_none(os.getenv("SHARED_DIR")),
             backup_interval_seconds=_positive_int(os.getenv("AVITO_BACKUP_INTERVAL_SECONDS"), 21600),
             backup_retention_count=_positive_int(os.getenv("AVITO_BACKUP_RETENTION_COUNT"), 14),
+            telegram_bot_token=_blank_to_none(os.getenv("TELEGRAM_BOT_TOKEN")),
+            manager_telegram_chat_id=_blank_to_none(os.getenv("MANAGER_TELEGRAM_CHAT_ID")),
+            telegram_notify_timeout_seconds=_positive_int(os.getenv("TELEGRAM_NOTIFY_TIMEOUT_SECONDS"), 5),
         )
 
     @property
@@ -72,6 +78,9 @@ class Settings:
             "backup_dir_configured": bool(self.avito_backup_dir),
             "backup_interval_seconds": self.backup_interval_seconds,
             "backup_retention_count": self.backup_retention_count,
+            "telegram_bot_configured": bool(self.telegram_bot_token),
+            "manager_telegram_chat_configured": bool(self.manager_telegram_chat_id),
+            "telegram_notify_timeout_seconds": self.telegram_notify_timeout_seconds,
         }
 
 

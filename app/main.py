@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from contextlib import asynccontextmanager, suppress
 from datetime import date
@@ -16,7 +17,7 @@ from pydantic import BaseModel, Field
 
 from app.ai_client import FallbackAIClient
 from app.assistant import SalesAssistant, order_messages
-from app.avito_payload import chat_item_key
+from app.avito_payload import chat_item_key, message_text, safe_int
 from app.avito_client import AvitoClient, AvitoConfigError
 from app.codex_app_server_client import CodexAppServerClient, CodexAppServerConfigError
 from app.config import get_settings
@@ -32,9 +33,23 @@ AUTOREPLY_PENDING_PATH = RUNTIME_DIR / "autoreply-pending.json"
 AUTOREPLY_STATE_PATH = RUNTIME_DIR / "autoreply-state.json"
 BOT_CONTROL_STATE_PATH = RUNTIME_DIR / "bot-control-state.json"
 QUALIFIED_BUYING_STATE_KEY = "qualified_buying_chat_ids"
+PROCESSED_INBOUND_STATE_KEY = "processed_inbound_message_keys"
+MANAGER_TELEGRAM_NOTIFIED_STATE_KEY = "manager_telegram_notified_message_keys"
+RECENT_READ_CHAT_LOOKBACK_SECONDS = 15 * 60
+BUYING_INTENT_RE = re.compile(
+    r"(хочу\s+(купить|заказать|оформить|сделку|кп)|"
+    r"готов[аы]?\s+(купить|заказать|оформить)|"
+    r"\b(беру|куплю|договорились|определил(?:ся|ись|ась)?)\b|"
+    r"давайте\s+(оформим|сделку|кп)|"
+    r"оформляйте|выставляйте\s+сч[её]т|"
+    r"свяжите\s+с\s+менеджером|позовите\s+менеджера|"
+    r"подготовк[аи]\s+предложени[яе]|точн(ого|ый)\s+расч[её]т)",
+    re.IGNORECASE,
+)
 
 webhook_events: list[dict[str, Any]] = []
 manager_takeover_chat_ids: set[str] = set()
+explicit_manager_takeover_chat_ids: set[str] = set()
 known_bot_control_chat_ids: set[str] = set()
 known_bot_control_item_keys: set[str] = set()
 bot_control_state_loaded = False
@@ -228,8 +243,10 @@ async def avito_chats(limit: int = 20, offset: int = 0, unread_only: bool = Fals
         response = await client.get_chats(limit=limit, offset=offset, unread_only=unread_only)
     except Exception as exc:
         raise _to_http_error(exc) from exc
-    _persist_avito_chats(list(response.get("chats", [])))
-    _apply_manual_default_for_new_items(list(response.get("chats", [])))
+    chats = list(response.get("chats", []))
+    _persist_avito_chats(chats)
+    _track_bot_control_items(chats)
+    response["qualified_buying_chat_ids"] = await _sync_qualified_buying_from_chats(client, chats)
     return response
 
 
@@ -307,8 +324,10 @@ async def avito_set_chat_bot_control(chat_id: str, request: ChatBotControlReques
     known_bot_control_chat_ids.add(chat_id)
     if request.manager_takeover:
         manager_takeover_chat_ids.add(chat_id)
+        explicit_manager_takeover_chat_ids.add(chat_id)
     else:
         manager_takeover_chat_ids.discard(chat_id)
+        explicit_manager_takeover_chat_ids.discard(chat_id)
     _save_bot_control_state()
     get_runtime_store().record_manager_action(
         chat_id,
@@ -321,14 +340,17 @@ async def avito_set_chat_bot_control(chat_id: str, request: ChatBotControlReques
 @app.get("/api/avito/qualified-buying-chats")
 async def avito_qualified_buying_chats() -> dict[str, Any]:
     chat_ids = _load_qualified_buying_chat_ids()
+    _clear_automatic_takeover_for_qualified_chats(chat_ids)
     return {"chat_ids": sorted(chat_ids), "count": len(chat_ids)}
 
 
 @app.post("/api/avito/qualified-buying-chats")
 async def avito_save_qualified_buying_chats(request: QualifiedBuyingChatsRequest) -> dict[str, Any]:
     chat_ids = _load_qualified_buying_chat_ids()
-    chat_ids.update(_normalize_chat_ids(request.chat_ids))
+    new_chat_ids = _normalize_chat_ids(request.chat_ids)
+    chat_ids.update(new_chat_ids)
     _save_qualified_buying_chat_ids(chat_ids)
+    _clear_automatic_takeover_for_qualified_chats(new_chat_ids)
     return {"chat_ids": sorted(chat_ids), "count": len(chat_ids)}
 
 
@@ -396,6 +418,11 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
     assistant = SalesAssistant(create_ai_client(settings))
     results: list[ProcessedUnreadChat] = []
     pending = _load_autoreply_pending()
+    processed_inbound = _load_processed_inbound_messages()
+    manager_notified_messages = _load_manager_telegram_notified_message_keys()
+    qualified_chat_ids = _load_qualified_buying_chat_ids()
+    _clear_automatic_takeover_for_qualified_chats(qualified_chat_ids)
+    scan_started_at = time.time()
 
     try:
         chats_response = await avito.get_chats(limit=limit, unread_only=True)
@@ -404,6 +431,18 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
 
     chats = list(chats_response.get("chats", []))
     seen_chat_ids = {str(chat.get("id") or "") for chat in chats}
+    try:
+        recent_response = await avito.get_chats(limit=limit, unread_only=False)
+    except Exception as exc:
+        raise _to_http_error(exc) from exc
+    for chat in recent_response.get("chats", []):
+        chat_id = str(chat.get("id") or "")
+        if not chat_id or chat_id in seen_chat_ids:
+            continue
+        if _is_recent_chat(chat, now=scan_started_at):
+            chats.append(chat)
+            seen_chat_ids.add(chat_id)
+
     for chat_id in list(pending):
         if chat_id and chat_id not in seen_chat_ids:
             try:
@@ -414,15 +453,12 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
                 chats.append({"id": chat_id})
 
     _persist_avito_chats(chats)
-    _apply_manual_default_for_new_items(chats)
+    _track_bot_control_items(chats)
 
     for chat in chats:
         chat_id = str(chat.get("id") or "")
         if not chat_id:
             results.append(ProcessedUnreadChat(chat_id="", status="skipped", error="missing chat id"))
-            continue
-        if chat_id in manager_takeover_chat_ids:
-            results.append(ProcessedUnreadChat(chat_id=chat_id, status="manager_active"))
             continue
 
         try:
@@ -430,10 +466,38 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
             _persist_avito_messages(chat_id, messages)
             latest_message = _latest_non_system_message(messages)
             pending_item = pending.get(chat_id)
+            is_manager_takeover = chat_id in manager_takeover_chat_ids
+            is_qualified_buying = chat_id in qualified_chat_ids
+            if is_manager_takeover or is_qualified_buying:
+                manager_notification = await _notify_manager_folder_messages(
+                    settings,
+                    chat=chat,
+                    chat_id=chat_id,
+                    messages_response=messages,
+                    notified_state=manager_notified_messages,
+                )
+                if is_manager_takeover:
+                    if pending_item:
+                        _clear_autoreply_pending(chat_id)
+                    status = "manager_notified" if manager_notification["notified_count"] else "manager_active"
+                    results.append(
+                        ProcessedUnreadChat(
+                            chat_id=chat_id,
+                            status=status,
+                            error=manager_notification["errors"] or None,
+                        )
+                    )
+                    continue
+
             if not latest_message or latest_message.get("direction") != "in":
                 status = "answered" if _has_outbound_after_message(messages, pending_item) else "skipped"
                 _clear_autoreply_pending(chat_id)
                 results.append(ProcessedUnreadChat(chat_id=chat_id, status=status))
+                continue
+
+            message_key = _message_processing_key(latest_message)
+            if not pending_item and processed_inbound.get(chat_id) == message_key:
+                results.append(ProcessedUnreadChat(chat_id=chat_id, status="already_processed"))
                 continue
 
             received_message_id = str(latest_message.get("id") or "")
@@ -461,6 +525,31 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
                 await avito.mark_chat_read(chat_id)
             draft = await assistant.draft_reply(chat, messages)
             if draft.handoff_required:
+                sent = await avito.send_text_message(chat_id, draft.text.strip())
+                sent_at = time.time()
+                _mark_processed_inbound_message(processed_inbound, chat_id, latest_message)
+                _add_qualified_buying_chat_id(chat_id)
+                notification = await _notify_manager_handoff(
+                    settings,
+                    chat=chat,
+                    chat_id=chat_id,
+                    handoff_reason=draft.handoff_reason,
+                    received_text=message_text(latest_message),
+                )
+                if notification.get("status") != "failed":
+                    _mark_manager_telegram_notified_message(manager_notified_messages, chat_id, latest_message)
+                get_runtime_store().record_manager_action(
+                    chat_id,
+                    "handoff_required",
+                    {
+                        "handoff_reason": draft.handoff_reason,
+                        "received_message_id": received_message_id,
+                        "received_text": message_text(latest_message),
+                        "handoff_reply_text": draft.text.strip(),
+                        "avito_response": sent,
+                        "manager_notification": notification,
+                    },
+                )
                 _clear_autoreply_pending(chat_id)
                 results.append(
                     ProcessedUnreadChat(
@@ -472,7 +561,9 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
                         accepted_at=accepted_at,
                         estimate_seconds=estimate_seconds,
                         estimated_reply_at=accepted_at + estimate_seconds,
-                        duration_ms=_elapsed_ms(accepted_at),
+                        sent_at=sent_at,
+                        duration_ms=_elapsed_ms(accepted_at, sent_at),
+                        sent_message_id=str(sent.get("id") or ""),
                     )
                 )
                 continue
@@ -483,6 +574,7 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
                 "ai_auto_reply_sent",
                 {"text": draft.text.strip(), "avito_response": sent},
             )
+            _mark_processed_inbound_message(processed_inbound, chat_id, latest_message)
             sent_at = time.time()
             _clear_autoreply_pending(chat_id)
             results.append(
@@ -712,12 +804,15 @@ def _ensure_bot_control_state_loaded() -> None:
     known_chat_ids = data.get("known_chat_ids", [])
     known_item_keys = data.get("known_item_keys", [])
     takeover_chat_ids = data.get("manager_takeover_chat_ids", [])
+    explicit_takeover_chat_ids = data.get("explicit_manager_takeover_chat_ids", [])
     if isinstance(known_chat_ids, list):
         known_bot_control_chat_ids.update(str(chat_id) for chat_id in known_chat_ids if chat_id)
     if isinstance(known_item_keys, list):
         known_bot_control_item_keys.update(str(item_key) for item_key in known_item_keys if item_key)
     if isinstance(takeover_chat_ids, list):
         manager_takeover_chat_ids.update(str(chat_id) for chat_id in takeover_chat_ids if chat_id)
+    if isinstance(explicit_takeover_chat_ids, list):
+        explicit_manager_takeover_chat_ids.update(str(chat_id) for chat_id in explicit_takeover_chat_ids if chat_id)
 
 
 def _save_bot_control_state() -> None:
@@ -725,6 +820,7 @@ def _save_bot_control_state() -> None:
         "known_chat_ids": sorted(known_bot_control_chat_ids),
         "known_item_keys": sorted(known_bot_control_item_keys),
         "manager_takeover_chat_ids": sorted(manager_takeover_chat_ids),
+        "explicit_manager_takeover_chat_ids": sorted(explicit_manager_takeover_chat_ids),
     }
     get_runtime_store().set_state("bot_control", data)
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
@@ -749,11 +845,85 @@ def _save_qualified_buying_chat_ids(chat_ids: set[str]) -> None:
     get_runtime_store().set_state(QUALIFIED_BUYING_STATE_KEY, sorted(chat_ids))
 
 
+def _add_qualified_buying_chat_id(chat_id: str) -> None:
+    chat_ids = _load_qualified_buying_chat_ids()
+    chat_ids.add(chat_id)
+    _save_qualified_buying_chat_ids(chat_ids)
+    _clear_automatic_takeover_for_qualified_chats({chat_id})
+
+
+async def _sync_qualified_buying_from_chats(client: AvitoClient, chats: list[dict[str, Any]]) -> list[str]:
+    chat_ids = _load_qualified_buying_chat_ids()
+    changed_chat_ids: set[str] = set()
+    chats_to_inspect: list[tuple[str, dict[str, Any]]] = []
+    for chat in chats:
+        chat_id = str(chat.get("id") or "")
+        if not chat_id or chat_id in chat_ids:
+            continue
+        if _chat_summary_has_buying_intent(chat):
+            changed_chat_ids.add(chat_id)
+            continue
+        chats_to_inspect.append((chat_id, chat))
+
+    semaphore = asyncio.Semaphore(5)
+
+    async def inspect_chat_messages(chat_id: str) -> str | None:
+        async with semaphore:
+            try:
+                messages = await client.get_messages(chat_id, limit=50)
+            except Exception:
+                return None
+            _persist_avito_messages(chat_id, messages)
+            return chat_id if _messages_have_buying_intent(messages) else None
+
+    if chats_to_inspect:
+        inspected_ids = await asyncio.gather(
+            *(inspect_chat_messages(chat_id) for chat_id, _chat in chats_to_inspect)
+        )
+        changed_chat_ids.update(chat_id for chat_id in inspected_ids if chat_id)
+
+    if changed_chat_ids:
+        chat_ids.update(changed_chat_ids)
+        _save_qualified_buying_chat_ids(chat_ids)
+    _clear_automatic_takeover_for_qualified_chats(chat_ids)
+    return sorted(chat_ids)
+
+
+def _clear_automatic_takeover_for_qualified_chats(chat_ids: set[str]) -> None:
+    _ensure_bot_control_state_loaded()
+    normalized_chat_ids = _normalize_chat_ids(list(chat_ids))
+    auto_takeover_chat_ids = (normalized_chat_ids & manager_takeover_chat_ids) - explicit_manager_takeover_chat_ids
+    if not auto_takeover_chat_ids:
+        return
+    manager_takeover_chat_ids.difference_update(auto_takeover_chat_ids)
+    _save_bot_control_state()
+
+
+def _chat_summary_has_buying_intent(chat: dict[str, Any]) -> bool:
+    last_message = chat.get("last_message")
+    if not isinstance(last_message, dict) or last_message.get("direction") != "in":
+        return False
+    return _has_buying_intent(message_text(last_message) or "")
+
+
+def _messages_have_buying_intent(messages_response: dict[str, Any]) -> bool:
+    client_texts = [
+        message_text(message) or ""
+        for message in order_messages(list(messages_response.get("messages", [])))
+        if message.get("direction") == "in" and message.get("type") != "system"
+    ]
+    return _has_buying_intent("\n".join(client_texts))
+
+
+def _has_buying_intent(text: str) -> bool:
+    return bool(text and BUYING_INTENT_RE.search(text))
+
+
 def _normalize_chat_ids(chat_ids: list[Any]) -> set[str]:
     return {str(chat_id).strip() for chat_id in chat_ids if str(chat_id).strip()}
 
 
-def _apply_manual_default_for_new_items(chats: list[dict[str, Any]]) -> None:
+def _track_bot_control_items(chats: list[dict[str, Any]]) -> None:
     _ensure_bot_control_state_loaded()
     chat_ids_by_item_key: dict[str, list[str]] = {}
     for chat in chats:
@@ -778,11 +948,11 @@ def _apply_manual_default_for_new_items(chats: list[dict[str, Any]]) -> None:
             is_new_item = item_key not in known_bot_control_item_keys
             known_bot_control_item_keys.add(item_key)
             for chat_id in chat_ids:
-                known_bot_control_chat_ids.add(chat_id)
-            if not is_new_item:
-                continue
-            manager_takeover_chat_ids.update(chat_ids)
-            changed = True
+                if chat_id not in known_bot_control_chat_ids:
+                    known_bot_control_chat_ids.add(chat_id)
+                    changed = True
+            if is_new_item:
+                changed = True
 
     if changed:
         _save_bot_control_state()
@@ -813,12 +983,309 @@ def create_ai_client(settings: Settings) -> DeepSeekClient | CodexAppServerClien
     raise DeepSeekConfigError(f"Unsupported AI_PROVIDER: {settings.ai_provider}")
 
 
+async def _notify_manager_handoff(
+    settings: Settings,
+    *,
+    chat: dict[str, Any] | None = None,
+    chat_id: str,
+    handoff_reason: str | None,
+    received_text: str | None,
+) -> dict[str, object]:
+    text = _format_manager_telegram_message(
+        title="Нужен менеджер",
+        chat=chat or {"id": chat_id},
+        chat_id=chat_id,
+        message_text_value=received_text,
+        reason=handoff_reason,
+    )
+    return await _send_telegram_notification(settings, text)
+
+
+async def _notify_manager_folder_messages(
+    settings: Settings,
+    *,
+    chat: dict[str, Any] | None = None,
+    chat_id: str,
+    messages_response: dict[str, Any],
+    notified_state: dict[str, set[str]],
+) -> dict[str, object]:
+    notified_count = 0
+    errors: list[object] = []
+    inbound_messages = [
+        message
+        for message in order_messages(list(messages_response.get("messages", [])))
+        if message.get("direction") == "in" and message.get("type") != "system"
+    ]
+    if not inbound_messages:
+        return {"notified_count": 0, "errors": errors}
+
+    if chat_id not in notified_state:
+        notified_state[chat_id] = set()
+        for message in inbound_messages[:-1]:
+            notified_state[chat_id].add(_message_processing_key(message))
+        if inbound_messages[:-1]:
+            _save_manager_telegram_notified_message_keys(notified_state)
+
+    for message in inbound_messages:
+        message_key = _message_processing_key(message)
+        if message_key in notified_state.get(chat_id, set()):
+            continue
+        text = _format_manager_telegram_message(
+            title="Новое сообщение в менеджерской папке",
+            chat=chat or {"id": chat_id},
+            chat_id=chat_id,
+            message_text_value=message_text(message),
+            reason=_telegram_reason_for_manager_folder_chat(chat or {}),
+        )
+        notification = await _send_telegram_notification(settings, text)
+        get_runtime_store().record_manager_action(
+            chat_id,
+            "manager_message_notified",
+            {
+                "message_key": message_key,
+                "received_text": message_text(message),
+                "manager_notification": notification,
+            },
+        )
+        if notification.get("status") == "failed":
+            errors.append(notification.get("error") or notification)
+            continue
+        if notification.get("status") == "skipped":
+            _mark_manager_telegram_notified_message(notified_state, chat_id, message)
+            continue
+        _mark_manager_telegram_notified_message(notified_state, chat_id, message)
+        notified_count += 1
+    return {"notified_count": notified_count, "errors": errors}
+
+
+def _format_manager_telegram_message(
+    *,
+    title: str,
+    chat: dict[str, Any],
+    chat_id: str,
+    message_text_value: str | None,
+    reason: str | None,
+) -> str:
+    item_title = _telegram_item_title(chat)
+    item_url = _telegram_item_url(chat)
+    profile_url = _telegram_client_profile_url(chat)
+    local_url = _manager_local_chat_url(chat_id)
+
+    lines = [
+        title,
+        "",
+        "Канал: Avito",
+        f"Чат: {chat_id}",
+        f"Клиент: {_telegram_client_name(chat)}",
+        f"Объявление: {item_title}",
+        f"Причина: {reason or _telegram_reason_for_manager_folder_chat(chat) or 'не указана'}",
+        "",
+        "Последнее сообщение:",
+        message_text_value or "без текста",
+    ]
+    if profile_url:
+        lines.extend(["", f"Профиль клиента: {profile_url}"])
+    if item_url:
+        lines.append(f"Объявление Avito: {item_url}")
+    if local_url:
+        lines.append(f"Ссылка: {local_url}")
+    return "\n".join(lines)
+
+
+def _telegram_client_name(chat: dict[str, Any]) -> str:
+    item = _telegram_item_context(chat)
+    seller_id = _string_id(item.get("user_id") or chat.get("seller_id") or chat.get("owner_id") or chat.get("account_id"))
+    title = _clean_text(chat.get("title") or chat.get("name") or chat.get("display_name") or chat.get("chat_title"))
+    item_title = _telegram_item_title(chat)
+    if title and title != item_title:
+        return title
+
+    direct_name = _pick_person_name(chat.get("buyer") or chat.get("client") or chat.get("customer") or chat.get("sender"))
+    if direct_name:
+        return direct_name
+
+    for user in _telegram_chat_users(chat):
+        user_id = _string_id(user.get("id") or user.get("user_id") or user.get("author_id") or (user.get("public_user_profile") or {}).get("user_id"))
+        if seller_id and user_id == seller_id:
+            continue
+        name = _pick_person_name(user)
+        if name:
+            return name
+    return "не определен"
+
+
+def _telegram_item_title(chat: dict[str, Any]) -> str:
+    item = _telegram_item_context(chat)
+    return _clean_text(item.get("title") or (chat.get("context") or {}).get("title") or chat.get("item_title")) or "не определено"
+
+
+def _telegram_item_url(chat: dict[str, Any]) -> str:
+    item = _telegram_item_context(chat)
+    return _clean_text(
+        item.get("url")
+        or item.get("uri")
+        or item.get("link")
+        or item.get("external_url")
+        or chat.get("item_url")
+        or chat.get("item_link")
+    )
+
+
+def _telegram_client_profile_url(chat: dict[str, Any]) -> str:
+    direct_url = _clean_text(
+        (chat.get("buyer") or {}).get("profile_url")
+        or (chat.get("buyer") or {}).get("url")
+        or (chat.get("client") or {}).get("profile_url")
+        or (chat.get("client") or {}).get("url")
+        or (chat.get("user") or {}).get("profile_url")
+        or (chat.get("user") or {}).get("url")
+    )
+    if direct_url:
+        return direct_url
+    for user in _telegram_chat_users(chat):
+        url = _clean_text(user.get("profile_url") or user.get("url") or (user.get("public_user_profile") or {}).get("url"))
+        if url:
+            return url
+    return ""
+
+
+def _telegram_reason_for_manager_folder_chat(chat: dict[str, Any]) -> str:
+    signals = [
+        chat.get("handoff_reason"),
+        chat.get("handoff_status"),
+        chat.get("deal_status"),
+        chat.get("order_status"),
+    ]
+    for signal in signals:
+        value = _clean_text(signal)
+        if value:
+            return value
+    return "менеджерская папка"
+
+
+def _manager_local_chat_url(chat_id: str) -> str:
+    if not chat_id:
+        return "http://127.0.0.1:8000"
+    return f"http://127.0.0.1:8000/?chat={chat_id}"
+
+
+def _telegram_item_context(chat: dict[str, Any]) -> dict[str, Any]:
+    context = chat.get("context")
+    if isinstance(context, dict) and isinstance(context.get("value"), dict):
+        return context["value"]
+    item = chat.get("item")
+    if isinstance(item, dict):
+        return item
+    return {}
+
+
+def _telegram_chat_users(chat: dict[str, Any]) -> list[dict[str, Any]]:
+    users: list[dict[str, Any]] = []
+    for source in (chat.get("users"), chat.get("participants"), chat.get("members"), (chat.get("context") or {}).get("users")):
+        if isinstance(source, list):
+            users.extend(user for user in source if isinstance(user, dict))
+    return users
+
+
+def _pick_person_name(person: object) -> str:
+    if not isinstance(person, dict):
+        return ""
+    return _clean_text(
+        person.get("name")
+        or person.get("display_name")
+        or person.get("title")
+        or (person.get("profile") or {}).get("name")
+        or (person.get("public_user_profile") or {}).get("name")
+    )
+
+
+def _clean_text(value: object) -> str:
+    return " ".join(value.split()) if isinstance(value, str) else ""
+
+
+def _string_id(value: object) -> str:
+    return "" if value is None else str(value)
+
+
+async def _send_telegram_notification(settings: Settings, text: str) -> dict[str, object]:
+    if not settings.telegram_bot_token or not settings.manager_telegram_chat_id:
+        return {"status": "skipped", "reason": "telegram_not_configured"}
+
+    url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage"
+    payload = {
+        "chat_id": settings.manager_telegram_chat_id,
+        "text": text,
+        "disable_web_page_preview": True,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=settings.telegram_notify_timeout_seconds) as client:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+    except Exception as exc:  # notification must not block Avito processing
+        return {"status": "failed", "error": _error_detail(exc)}
+    return {"status": "sent"}
+
+
 def _latest_non_system_message(messages_response: dict[str, Any]) -> dict[str, Any] | None:
     messages = order_messages(list(messages_response.get("messages", [])))
     for message in reversed(messages):
         if message.get("type") != "system":
             return message
     return None
+
+
+def _is_recent_chat(chat: dict[str, Any], *, now: float) -> bool:
+    updated_at = safe_int(chat.get("updated") or chat.get("updated_at"))
+    if updated_at is None:
+        last_message = chat.get("last_message")
+        if isinstance(last_message, dict):
+            updated_at = safe_int(last_message.get("created") or last_message.get("created_at"))
+    if updated_at is None:
+        return False
+    return updated_at >= int(now) - RECENT_READ_CHAT_LOOKBACK_SECONDS
+
+
+def _load_processed_inbound_messages() -> dict[str, str]:
+    data = get_runtime_store().get_state(PROCESSED_INBOUND_STATE_KEY)
+    if not isinstance(data, dict):
+        return {}
+    return {str(chat_id): str(message_key) for chat_id, message_key in data.items() if chat_id and message_key}
+
+
+def _load_manager_telegram_notified_message_keys() -> dict[str, set[str]]:
+    data = get_runtime_store().get_state(MANAGER_TELEGRAM_NOTIFIED_STATE_KEY)
+    if not isinstance(data, dict):
+        return {}
+    result: dict[str, set[str]] = {}
+    for chat_id, message_keys in data.items():
+        if not chat_id or not isinstance(message_keys, list):
+            continue
+        result[str(chat_id)] = {str(message_key) for message_key in message_keys if message_key}
+    return result
+
+
+def _save_manager_telegram_notified_message_keys(state: dict[str, set[str]]) -> None:
+    data = {chat_id: sorted(message_keys)[-100:] for chat_id, message_keys in state.items() if message_keys}
+    get_runtime_store().set_state(MANAGER_TELEGRAM_NOTIFIED_STATE_KEY, data)
+
+
+def _mark_processed_inbound_message(state: dict[str, str], chat_id: str, message: dict[str, Any]) -> None:
+    state[chat_id] = _message_processing_key(message)
+    get_runtime_store().set_state(PROCESSED_INBOUND_STATE_KEY, state)
+
+
+def _mark_manager_telegram_notified_message(state: dict[str, set[str]], chat_id: str, message: dict[str, Any]) -> None:
+    state.setdefault(chat_id, set()).add(_message_processing_key(message))
+    _save_manager_telegram_notified_message_keys(state)
+
+
+def _message_processing_key(message: dict[str, Any]) -> str:
+    message_id = message.get("id") or message.get("message_id")
+    if message_id:
+        return str(message_id)
+    created_at = safe_int(message.get("created") or message.get("created_at")) or 0
+    text = message_text(message) or ""
+    return f"{created_at}:{text}"
 
 
 def _has_outbound_after_message(messages_response: dict[str, Any], pending_item: dict[str, Any] | None) -> bool:

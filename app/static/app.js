@@ -37,6 +37,7 @@ const statsStatusLine = document.querySelector("#statsStatusLine");
 const statsSummary = document.querySelector("#statsSummary");
 const statsTableHead = document.querySelector(".stats-table thead");
 const statsTableBody = document.querySelector("#statsTableBody");
+const workspaceResizers = document.querySelectorAll(".workspace-resizer");
 
 let activeChatId = null;
 let activeChat = null;
@@ -65,8 +66,14 @@ const openStatsRowKeys = new Set();
 const POLLING_INTERVAL_MS = 3000;
 const MESSAGE_SCROLL_BOTTOM_THRESHOLD = 80;
 const MANAGER_PAGE_STATE_KEY = "avito-bot-manager-page-state";
+const MANAGER_LAYOUT_STATE_KEY = "avito-bot-manager-layout-state";
 const QUALIFIED_BUYING_CHAT_IDS_KEY = "avito-bot-qualified-buying-chat-ids";
 const STATS_SORT_KEY = "avito-bot-stats-sort";
+const RESIZABLE_LAYOUT_DEFAULTS = {
+  chatLeft: 330,
+  chatRight: 380,
+  statsLeft: 360,
+};
 const STATS_SORT_FIELDS = new Set(["date", "title", "uniqViews", "uniqContacts", "uniqFavorites"]);
 const STATS_NUMERIC_SORT_FIELDS = new Set(["uniqViews", "uniqContacts", "uniqFavorites"]);
 const qualifiedBuyingChatIds = loadQualifiedBuyingChatIds();
@@ -89,6 +96,7 @@ chatList.addEventListener("click", handleChatListClick);
 chatList.addEventListener("scroll", () => {
   savedChatListScrollTop = chatList.scrollTop;
 });
+workspaceResizers.forEach(initializeWorkspaceResizer);
 window.addEventListener("beforeunload", saveManagerPageState);
 readButton.addEventListener("click", markRead);
 draftButton.addEventListener("click", draftReply);
@@ -104,6 +112,7 @@ initialize();
 
 async function initialize() {
   restoreManagerPageState();
+  restoreWorkspaceLayout();
   initializeStatsDates();
   const status = await refreshStatus();
   await syncQualifiedBuyingChatIdsFromServer();
@@ -160,6 +169,7 @@ async function loadChats({ show = true } = {}) {
   });
   const data = await api(`/api/avito/chats?${params.toString()}`);
   if (show) showOutput(data);
+  mergeQualifiedBuyingChatIds(data.qualified_buying_chat_ids);
   const nextChats = data.chats || [];
   const nextFingerprint = getChatsFingerprint(nextChats);
   currentChats = nextChats;
@@ -750,6 +760,125 @@ function saveManagerPageState() {
   }
 }
 
+function initializeWorkspaceResizer(handle) {
+  handle.addEventListener("pointerdown", (event) => startWorkspaceResize(handle, event));
+  handle.addEventListener("keydown", (event) => resizeWorkspaceWithKeyboard(handle, event));
+}
+
+function restoreWorkspaceLayout() {
+  applyWorkspaceLayout(loadWorkspaceLayoutState());
+}
+
+function loadWorkspaceLayoutState() {
+  try {
+    const state = JSON.parse(window.localStorage.getItem(MANAGER_LAYOUT_STATE_KEY) || "{}");
+    return {
+      chatLeft: normalizeLayoutNumber(state.chatLeft, RESIZABLE_LAYOUT_DEFAULTS.chatLeft),
+      chatRight: normalizeLayoutNumber(state.chatRight, RESIZABLE_LAYOUT_DEFAULTS.chatRight),
+      statsLeft: normalizeLayoutNumber(state.statsLeft, RESIZABLE_LAYOUT_DEFAULTS.statsLeft),
+    };
+  } catch (error) {
+    return { ...RESIZABLE_LAYOUT_DEFAULTS };
+  }
+}
+
+function saveWorkspaceLayoutState(state) {
+  try {
+    window.localStorage.setItem(MANAGER_LAYOUT_STATE_KEY, JSON.stringify(state));
+  } catch (error) {
+    // Non-critical: panel resizing remains available for this page session.
+  }
+}
+
+function applyWorkspaceLayout(state) {
+  document.documentElement.style.setProperty("--chat-left-width", `${Math.round(state.chatLeft)}px`);
+  document.documentElement.style.setProperty("--chat-right-width", `${Math.round(state.chatRight)}px`);
+  document.documentElement.style.setProperty("--stats-left-width", `${Math.round(state.statsLeft)}px`);
+}
+
+function normalizeLayoutNumber(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function startWorkspaceResize(handle, event) {
+  if (event.button !== undefined && event.button !== 0) return;
+  const target = handle.dataset.resizeTarget;
+  const workspace = getResizeWorkspace(target);
+  if (!target || !workspace || window.matchMedia("(max-width: 1180px)").matches) return;
+
+  event.preventDefault();
+  handle.setPointerCapture?.(event.pointerId);
+  handle.classList.add("active");
+  document.body.classList.add("workspace-resizing");
+
+  let nextState = loadWorkspaceLayoutState();
+  const onPointerMove = (moveEvent) => {
+    nextState = calculateWorkspaceLayout(target, moveEvent.clientX, nextState);
+    applyWorkspaceLayout(nextState);
+  };
+  const onPointerUp = () => {
+    handle.classList.remove("active");
+    document.body.classList.remove("workspace-resizing");
+    window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup", onPointerUp);
+    window.removeEventListener("pointercancel", onPointerUp);
+    saveWorkspaceLayoutState(nextState);
+  };
+
+  window.addEventListener("pointermove", onPointerMove);
+  window.addEventListener("pointerup", onPointerUp);
+  window.addEventListener("pointercancel", onPointerUp);
+}
+
+function resizeWorkspaceWithKeyboard(handle, event) {
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+  const target = handle.dataset.resizeTarget;
+  const direction = event.key === "ArrowRight" ? 1 : -1;
+  const state = loadWorkspaceLayoutState();
+  const delta = 24;
+
+  event.preventDefault();
+  if (target === "chat-left") {
+    state.chatLeft = clampLayoutWidth(state.chatLeft + direction * delta, 240, 620);
+  } else if (target === "chat-right") {
+    state.chatRight = clampLayoutWidth(state.chatRight - direction * delta, 280, 620);
+  } else if (target === "stats-left") {
+    state.statsLeft = clampLayoutWidth(state.statsLeft + direction * delta, 280, 620);
+  }
+  applyWorkspaceLayout(state);
+  saveWorkspaceLayoutState(state);
+}
+
+function calculateWorkspaceLayout(target, clientX, previousState) {
+  const state = { ...previousState };
+  const workspace = getResizeWorkspace(target);
+  if (!workspace) return state;
+  const rect = workspace.getBoundingClientRect();
+
+  if (target === "chat-left") {
+    const maxLeft = rect.width - state.chatRight - 460;
+    state.chatLeft = clampLayoutWidth(clientX - rect.left, 240, maxLeft);
+  } else if (target === "chat-right") {
+    const maxRight = rect.width - state.chatLeft - 460;
+    state.chatRight = clampLayoutWidth(rect.right - clientX, 280, maxRight);
+  } else if (target === "stats-left") {
+    state.statsLeft = clampLayoutWidth(clientX - rect.left, 280, rect.width - 560);
+  }
+  return state;
+}
+
+function getResizeWorkspace(target) {
+  if (target === "stats-left") return statsView;
+  if (target === "chat-left" || target === "chat-right") return chatView;
+  return null;
+}
+
+function clampLayoutWidth(value, min, max) {
+  const safeMax = Math.max(min, max);
+  return Math.round(Math.min(Math.max(value, min), safeMax));
+}
+
 function restoreChatListScroll() {
   window.requestAnimationFrame(() => {
     chatList.scrollTop = savedChatListScrollTop;
@@ -1327,7 +1456,8 @@ function getChatsFingerprint(chats) {
       state: chat.state,
       handoff_required: chat.handoff_required,
       unread_count: chat.unread_count,
-      updated: chat.updated || chat.updated_at,
+      updated: chat.updated || chat.updated_at || chat.updatedAt,
+      activity: getChatActivityTimestamp(chat),
     })),
   );
 }
@@ -1453,7 +1583,7 @@ function createChatBucket(groupKey, bucketKey, title, chats, { highlighted = fal
     return bucket;
   }
 
-  chats.forEach((chat) => {
+  sortChatsByActivityDesc(chats).forEach((chat) => {
     body.append(createChatButton(chat));
   });
   bucket.append(body);
@@ -1509,14 +1639,26 @@ function createChatButton(chat) {
   title.className = "chat-title";
   title.textContent = getChatDisplayTitle(chat);
 
-  titleRow.append(title);
+  const titleSide = document.createElement("span");
+  titleSide.className = "chat-title-side";
 
   if (isBuyingChat(chat)) {
     const badge = document.createElement("span");
     badge.className = "chat-deal-badge";
     badge.textContent = "покупает";
-    titleRow.append(badge);
+    titleSide.append(badge);
   }
+
+  const activityTime = formatChatActivityTime(chat);
+  if (activityTime.label) {
+    const time = document.createElement("span");
+    time.className = "chat-activity-time";
+    time.textContent = activityTime.label;
+    if (activityTime.full) time.title = activityTime.full;
+    titleSide.append(time);
+  }
+
+  titleRow.append(title, titleSide);
 
   const meta = document.createElement("div");
   meta.className = "chat-meta";
@@ -1541,6 +1683,17 @@ function splitChatsByBuyingIntent(chats) {
     }
   });
   return { buying, other };
+}
+
+function sortChatsByActivityDesc(chats) {
+  return [...chats].sort((left, right) => {
+    const timeDiff = getChatActivityTimestamp(right) - getChatActivityTimestamp(left);
+    if (timeDiff) return timeDiff;
+    return getChatDisplayTitle(left).localeCompare(getChatDisplayTitle(right), "ru", {
+      numeric: true,
+      sensitivity: "base",
+    });
+  });
 }
 
 function isBuyingChat(chat) {
@@ -1669,6 +1822,18 @@ async function syncQualifiedBuyingChatIdsFromServer() {
   }
 }
 
+function mergeQualifiedBuyingChatIds(chatIds) {
+  if (!Array.isArray(chatIds)) return false;
+  let changed = false;
+  chatIds.map(String).filter(Boolean).forEach((chatId) => {
+    if (qualifiedBuyingChatIds.has(chatId)) return;
+    qualifiedBuyingChatIds.add(chatId);
+    changed = true;
+  });
+  if (changed) writeQualifiedBuyingChatIdsCache();
+  return changed;
+}
+
 async function persistQualifiedBuyingChatIdsToServer() {
   try {
     await api("/api/avito/qualified-buying-chats", {
@@ -1784,7 +1949,74 @@ function groupChatsByItem(chats) {
     }
     groupsByKey.get(key).chats.push(chat);
   });
-  return [...groupsByKey.values()];
+  return [...groupsByKey.values()]
+    .map((group) => ({
+      ...group,
+      chats: sortChatsByActivityDesc(group.chats),
+      latestActivity: Math.max(...group.chats.map(getChatActivityTimestamp), 0),
+    }))
+    .sort((left, right) => {
+      const timeDiff = right.latestActivity - left.latestActivity;
+      if (timeDiff) return timeDiff;
+      return left.title.localeCompare(right.title, "ru", { numeric: true, sensitivity: "base" });
+    });
+}
+
+function getChatActivityTimestamp(chat) {
+  const candidates = [
+    chat.last_message?.created,
+    chat.last_message?.created_at,
+    chat.last_message?.createdAt,
+    chat.last_message?.timestamp,
+    chat.updated,
+    chat.updated_at,
+    chat.updatedAt,
+    chat.created,
+    chat.created_at,
+    chat.createdAt,
+  ];
+  return candidates.map(normalizeTimestampMs).find((timestamp) => timestamp > 0) || 0;
+}
+
+function normalizeTimestampMs(value) {
+  if (value === null || value === undefined || value === "") return 0;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value <= 0) return 0;
+    return value < 1000000000000 ? value * 1000 : value;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return 0;
+    if (/^\d+(\.\d+)?$/.test(trimmed)) return normalizeTimestampMs(Number(trimmed));
+    const parsed = Date.parse(trimmed);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  return 0;
+}
+
+function formatChatActivityTime(chat) {
+  const timestamp = getChatActivityTimestamp(chat);
+  if (!timestamp) return { label: "", full: "" };
+  const date = new Date(timestamp);
+  const now = new Date();
+  const time = new Intl.DateTimeFormat("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+  const full = new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+
+  const dateLabel = new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    ...(date.getFullYear() === now.getFullYear() ? {} : { year: "2-digit" }),
+  }).format(date);
+  return { label: `${dateLabel} ${time}`, full };
 }
 
 function getChatItemContext(chat) {

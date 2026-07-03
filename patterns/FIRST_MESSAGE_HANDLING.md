@@ -161,6 +161,15 @@ read, search, edit, create, delete, move, or inspect files in another project or
 arbitrary external folder just because a task manager, summary, migration, or
 previous chat mentions it.
 
+Before filesystem writes, verify that the active working directory, local
+project identity, and target path match the user's current request. Use local
+identity signals such as local instructions, README title, package or app
+manifests, service id, git remote, project-memory orientation, and documented
+working areas. If those signals point to a different project than the request,
+stop and report the mismatch before editing. A path or product name from old
+chat, a screenshot, task-manager metadata, a summary, or a stale plan is not
+permission to edit that other project.
+
 Treat `.\others\` under the current workspace parent, or another project-local
 relative path named by local instructions, as the standard local parent folder
 for third-party projects, cloned external repositories, and vendor experiments

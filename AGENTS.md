@@ -48,9 +48,10 @@ implemented against each goal criterion and list remaining gaps as blockers.
   test, install, reset, update, commit, push, or manage task-manager state, do
   not execute from memory, old chat examples, or a command name alone. If the
   command's routed module is unavailable, stop and report the missing path.
-- For `gi restart`, `gi reboot`, `РіРё СЂРµСЃС‚Р°СЂС‚`, `РіРё СЂРµР±СѓС‚`, and equivalent
-  aliases, `patterns/AGENTS_RUNTIME/09-project-operation-commands.md` is
-  mandatory context before any process inspection, stop, start, or success
+- For `gi restart`, `gi reboot`, `gi docker`, `ги рестарт`, `ги ребут`,
+  `ги докер`, and equivalent aliases,
+  `patterns/AGENTS_RUNTIME/09-project-operation-commands.md` is mandatory
+  context before any process inspection, Docker build, stop, start, or success
   report.
 - For broad or unclear work, read `patterns/AGENTS_RUNTIME/01-purpose.md`,
   `patterns/AGENTS_RUNTIME/03-rule-precedence.md`,
@@ -88,8 +89,9 @@ Use the RAG startup flow and retrieve only task-relevant context.
   and shared-rule propagation: `patterns/AGENTS_RUNTIME/01-purpose.md`
 - Repository map: `patterns/AGENTS_RUNTIME/02-repository-map.md`
 - Rule precedence and scope arbitration: `patterns/AGENTS_RUNTIME/03-rule-precedence.md`
-- Authoring reusable rules, configuration boundaries, code quality, stack
-  inventory, and batch verification: `patterns/AGENTS_RUNTIME/04-content-and-authoring.md`
+- Authoring reusable rules, configuration boundaries, code quality, project
+  info/stack inventory, and batch verification:
+  `patterns/AGENTS_RUNTIME/04-content-and-authoring.md`
 - Windows shell and networking policy: `patterns/AGENTS_RUNTIME/05-windows-command-policy.md`
 - Token economy, verification command lookup, `gi info`, `gi stack`,
   `gi refactor`, feature contracts, and large-output handling:
@@ -100,9 +102,9 @@ Use the RAG startup flow and retrieve only task-relevant context.
 - Config-service, service guide/contract lookup, task manager commands,
   manager-backed and local sprint commands, and web-service port registration:
   `patterns/AGENTS_RUNTIME/08-config-service-and-task-manager.md`
-- Dev/prod online service publication, FTP deploy, restart/reboot, first test,
-  full test, default reset, installer packaging, SQL/vector inspection, and
-  project/RAG rebuild commands:
+- Dev/prod online service publication, FTP deploy, restart/reboot,
+  Docker/Compose restart, first test, full test, default reset, installer
+  packaging, SQL/vector inspection, and project/RAG rebuild commands:
   `patterns/AGENTS_RUNTIME/09-project-operation-commands.md`
 - Nested repositories, private local app data, product-plan intent signals, and
   missing required entities:
@@ -183,6 +185,11 @@ Inspect logs:
   unrelated scope expansion.
 - Treat this project root as the filesystem boundary for normal work unless the
   user gives an explicit concrete path and action.
+- Before filesystem writes, verify the active project root and target identity
+  from local instructions, README, manifests, git remote, service id, or project
+  memory. If the task appears to target a different product, repository, or
+  absolute path outside this root, stop and warn the user unless the current
+  message explicitly authorizes that exact external path and action.
 - Preserve text encodings when editing files.
 - Production runtime state is business-critical. `gi prod`, production reboot,
   and local release deploys must preserve `.release/.codex-runtime/` state,

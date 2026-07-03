@@ -13,6 +13,10 @@ state and make the next batch obvious without hiding unfinished risks.
 
 - Keep each batch tied to one product, architecture, configuration, or
   verification goal.
+- Classify the batch before editing as refactor, development, verification,
+  operation, migration, configuration cleanup, or a named mix. Do not hide
+  feature work, behavior changes, public contract changes, service operations,
+  or data migrations inside a "refactor" label.
 - Preserve user-visible behavior unless the user explicitly requested a behavior
   change.
 - Check every touched layer that can contain the same decision, default, state,
@@ -31,6 +35,8 @@ state and make the next batch obvious without hiding unfinished risks.
 - Before finishing, inspect the changed-file list and remove or explain
   unrelated edits, generated noise, local-only artifacts, and accidental
   formatting churn.
+- Keep rollback scope clear. A batch should be reviewable and revertible without
+  undoing unrelated user work or previous completed batches.
 - Run the fastest relevant checks first, then broader checks only when the risk
   or project contract requires them.
 - Treat `git diff --check` as a whitespace/error check, not as a substitute for
@@ -63,10 +69,13 @@ surrounding ranges or structured parsed output.
 At the end of the batch, the agent should be able to answer:
 
 - What is the single purpose of this batch?
+- What type of work was this batch, and did any development, verification, or
+  operational work ride along with a refactor?
 - Which source is authoritative for each changed default, policy, workflow, or
   contract?
 - Which layers consume that source, and how was drift checked?
 - Which durable specification changed, or why no durable spec update was
   needed?
 - Which checks prove the batch, and what do their warnings mean?
+- What is the smallest safe rollback scope?
 - Which follow-up batch remains, if any?

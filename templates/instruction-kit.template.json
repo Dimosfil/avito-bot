@@ -1,5 +1,5 @@
 {
-  "instruction_kit_version": "2026.06.30.2",
+  "instruction_kit_version": "2026.07.03.1",
   "source": "https://github.com/Dimosfil/general-instructions.git",
   "installed_at": "TODO",
   "update_check": {
@@ -135,7 +135,10 @@
     "2026.06.24.4__gi_info_uses_project_languages",
     "2026.06.24.5__make_gi_info_idempotent",
     "2026.06.30.1__add_senior_agent_engineering_standard",
-    "2026.06.30.2__add_api_key_secret_safety"
+    "2026.06.30.2__add_api_key_secret_safety",
+    "2026.07.01.1__classify_development_vs_refactor",
+    "2026.07.02.1__require_project_identity_before_writes",
+    "2026.07.03.1__add_gi_docker_command"
   ],
   "copied_files": [
     "AGENTS.md",

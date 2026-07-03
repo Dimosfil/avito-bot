@@ -16,6 +16,32 @@ def test_detect_handoff_for_commercial_proposal() -> None:
     assert detect_handoff(messages) == "хочу кп"
 
 
+def test_handoff_draft_is_customer_facing() -> None:
+    assistant = SalesAssistant(None)
+
+    draft = asyncio.run(
+        assistant.draft_reply(
+            {},
+            {"messages": [{"direction": "in", "content": {"text": "готов купить"}}]},
+        )
+    )
+
+    assert draft.handoff_required is True
+    assert draft.handoff_reason == "готов купить"
+    assert "передам информацию менеджеру" in draft.text.lower()
+    assert "не отправлять автоответ" not in draft.text.lower()
+
+
+def test_detect_handoff_checks_latest_inbound_only() -> None:
+    messages = [
+        {"created": 1, "direction": "in", "content": {"text": "готов купить"}},
+        {"created": 2, "direction": "out", "content": {"text": "Передам менеджеру."}},
+        {"created": 3, "direction": "in", "content": {"text": "Свободны сегодня?"}},
+    ]
+
+    assert detect_handoff(messages) is None
+
+
 def test_detect_admin_command_for_code_word() -> None:
     messages = [
         {
@@ -119,9 +145,10 @@ def test_admin_command_enables_admin_mode_prompt_for_llm() -> None:
 
     assert draft.handoff_required is False
     assert draft.handoff_reason is None
-    assert draft.text == "Админ-режим включён. Готов проверить настройки."
+    assert draft.text == "Админ-режим включён. Готова проверить настройки."
     assert len(calls) == 1
     assert "ADMIN MODE is active" in calls[0][0].content
+    assert "first person feminine form" in calls[0][0].content
 
 
 def test_draft_reply_sanitizes_markdown_and_stray_symbols() -> None:
@@ -141,6 +168,22 @@ def test_draft_reply_sanitizes_markdown_and_stray_symbols() -> None:
     assert "**" not in draft.text
     assert "`" not in draft.text
     assert "\u2030" not in draft.text
+
+
+def test_draft_reply_enforces_feminine_self_reference() -> None:
+    class CapturingDeepSeek:
+        async def create_chat_completion(self, messages):
+            return "Дмитрий, я работаю круглосуточно и готов помочь."
+
+    assistant = SalesAssistant(CapturingDeepSeek())
+    draft = asyncio.run(
+        assistant.draft_reply(
+            {},
+            {"messages": [{"direction": "in", "content": {"text": "Свободны сегодня?"}}]},
+        )
+    )
+
+    assert draft.text == "Дмитрий, я работаю круглосуточно и готова помочь."
 
 
 def test_admin_prompt_forbids_markdown_formatting() -> None:

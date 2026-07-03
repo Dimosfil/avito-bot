@@ -22,6 +22,10 @@ and leave durable knowledge updated when behavior or architecture changes.
   source-of-truth.
 - Keep the scope deliberate. Solve the user's stated goal without unrelated
   rewrites, formatting churn, generated noise, or opportunistic refactors.
+- Classify each meaningful batch before editing. Distinguish refactoring that
+  preserves behavior from development that adds or changes behavior, verification
+  work that proves behavior, and operational work that touches running services
+  or external systems.
 - Preserve user-visible behavior during refactors unless the user explicitly
   requests a behavior change.
 - Respect architecture boundaries. Keep domain behavior, orchestration, UI,
@@ -42,6 +46,9 @@ and leave durable knowledge updated when behavior or architecture changes.
   inventing a new local style.
 - Work in coherent batches. Each batch should advance one product,
   architecture, configuration, or verification goal and leave a reviewable diff.
+- For refactor batches, name the public contract being preserved or created and
+  avoid mixing in feature changes unless the mixed scope is explicit and
+  verified as development too.
 - Verify before reporting completion. Reread edited files, run the fastest
   relevant checks first, and broaden verification when the blast radius or
   project contract requires it.

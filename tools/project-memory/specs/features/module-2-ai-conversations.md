@@ -63,10 +63,11 @@ First runnable slice:
 - A configurable AI assistant can generate a review-first draft reply for a
   selected Avito chat. Supported providers are `deepseek` and
   `codex_app_server`.
-- The UI can process unread Avito chats on demand or by enabled polling: for
-  each unread chat whose latest non-system message is inbound, it generates an
-  AI reply, sends it through Avito, and marks the chat read when no handoff
-  trigger is detected.
+- The UI can process Avito chats on demand or by enabled polling: for each
+  unread chat, plus each recently updated read chat inside the backend lookback
+  window, whose latest non-system message is inbound, it generates an AI reply,
+  sends it through Avito, and marks the chat read when no handoff trigger is
+  detected.
 - Bot behavior rules live in a dedicated application module rather than inside
   HTTP handlers. The rule layer owns handoff phrases, prompt guardrails, and
   deterministic reply cleanup such as removing repeated greetings after the
@@ -140,6 +141,11 @@ First runnable slice:
   browser `localStorage`. The UI may keep a browser cache for fast restore and
   migration, but it must sync that cache through the backend so host rebuilds,
   browser changes, and domain/origin changes do not lose qualified leads.
+- Chats in the `Согласились купить` bucket remain in AI mode by default. The
+  bucket is a manager attention signal, not automatic manager takeover: the bot
+  should keep the client warm and answer calmly until a manager explicitly
+  turns `Ручной режим` on for that chat. Telegram manager notifications stay
+  active for qualified chats even while AI replies remain enabled.
 - UI service-purchase trigger words and regex phrases must live in a separate
   project-local rules dictionary, not inline inside the chat rendering logic.
   The current browser-side dictionary is `app/static/bot-rules.js` under
@@ -231,8 +237,10 @@ Minimum MVP checks:
   `handoff_requested`.
 - After handoff or manual takeover, AI does not send further replies.
 - Per-chat manual takeover must be testable through the HTTP API and must make
-  unread auto-processing report the chat as `manager_active` without fetching
-  messages or sending an AI reply.
+  unread auto-processing report the chat as `manager_active` or
+  `manager_notified` without sending an AI reply. The worker may fetch messages
+  in manual/qualified chats only to persist history and notify managers about
+  new inbound messages.
 - Manager can see the full message history and sender roles.
 - Channel adapter tests prove core workflow is platform-neutral.
 - Avito adapter tests prove official Avito payloads can be normalized into the
@@ -241,11 +249,22 @@ Minimum MVP checks:
   explicitly send the reply.
 - Avito unread auto-processing must send only when the latest non-system message
   is inbound and no handoff trigger is detected; handoff-trigger messages must
-  not be auto-sent.
+  receive one short client-facing transfer reply before manager notification.
+- Avito auto-processing must not rely only on Avito `unread_only` results.
+  If a manager opens a chat in Avito before the worker polls, the backend must
+  still scan recently updated read chats and process a new latest inbound
+  message once.
+- The backend must persist the latest processed inbound message key per chat so
+  recent-read scanning cannot repeat the same AI reply or handoff event across
+  polling cycles or restarts.
 - When Avito auto-processing marks an accepted inbound message read before the
   AI reply is sent, it must persist a minimal pending auto-reply record so a
   restart or transient AI failure can still retry the chat even if Avito no
   longer returns it in `unread_only` results.
+- Handoff detection for automatic processing must evaluate the latest inbound
+  client message, not any historical trigger phrase in the conversation. After a
+  chat is already qualified, later neutral client messages should still receive
+  normal AI replies unless manual takeover is active.
 - Before retrying a pending auto-reply, the worker must reread the conversation
   and skip/clear the pending record if a manager or another sender has already
   posted an outbound reply after the accepted client message.
@@ -260,6 +279,8 @@ Minimum MVP checks:
   The assistant must write in Russian from a feminine first-person voice, so
   generated manager-style phrases agree with a female speaker. It must avoid
   masculine self-references such as "я мог", "подобрал", or "уточнил".
+  The backend must also apply deterministic cleanup for common masculine
+  self-references such as "я готов" or "и готов помочь" before sending.
 - When an unread message is accepted for automatic processing, the UI must make
   that state visible before completion; after send or handoff, the UI must show
   the fixed estimate/result instead of leaving the manager guessing.

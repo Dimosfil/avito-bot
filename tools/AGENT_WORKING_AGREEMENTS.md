@@ -10,6 +10,12 @@
   project or arbitrary external folder unless the user gives an explicit
   concrete path and action. Use APIs, connectors, or task-manager endpoints for
   cross-project communication.
+- Before filesystem writes, verify that the active project root and target
+  identity match the user's current request. Use local identity signals such as
+  local instructions, README, manifests, service id, git remote, and project
+  memory. If the request appears to target another product, repository, or
+  absolute path outside this root, stop and warn the user unless the current
+  message explicitly authorizes that exact external path and action.
 - Treat nested checkouts, vendored repositories, cloned examples, and
   third-party source trees as separate scope. Do not inspect them as part of the
   main project unless the user explicitly asks, the task is about that nested
@@ -57,7 +63,11 @@
   interpretation rules. Check backend, frontend, tests, docs, generated
   examples, build metadata, and project-memory specs as relevant; keep unrelated
   files and generated noise out of the batch; and distinguish harmless
-  line-ending warnings from real `git diff --check` whitespace errors.
+  line-ending warnings from real `git diff --check` whitespace errors. Classify
+  the batch as refactor, development, verification, operation, migration,
+  configuration cleanup, or a named mix; do not hide behavior changes,
+  public-contract changes, service operations, or data migrations inside a
+  "refactor" label.
 
 ## Git
 
@@ -236,7 +246,10 @@ or:
   project-memory updates, and cross-layer source-of-truth consistency. Ask
   before destructive operations, data migrations, public API or storage
   contract changes, dependency replacements, formatting-only churn, or
-  private/external paths.
+  private/external paths. Keep structural refactor work separate from
+  development work such as new behavior, validation, observability,
+  integrations, runtime flows, or new public contracts; label verification and
+  service operations separately too.
 - Use `gi rebuild` for the current project/application rebuild only, such as
   producing an executable, package, or documented build artifact. Use
   `gi tools rebuild` /

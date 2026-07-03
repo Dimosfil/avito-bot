@@ -25,8 +25,8 @@ class SalesAssistant:
         if handoff_reason:
             return AssistantDraft(
                 text=(
-                    "Клиент показывает готовность к сделке. "
-                    "Лучше подключить менеджера и не отправлять автоответ."
+                    "Приняла, передам информацию менеджеру. "
+                    "С вами свяжутся для уточнения деталей."
                 ),
                 handoff_required=True,
                 handoff_reason=handoff_reason,
@@ -38,6 +38,7 @@ class SalesAssistant:
         text = bot_rules.strip_seller_name_address(text, client_name=client_display_name(chat))
         text = bot_rules.strip_repeated_greeting(text, seller_already_greeted=seller_already_greeted(messages))
         text = bot_rules.sanitize_outgoing_text(text)
+        text = bot_rules.enforce_seller_feminine_voice(text)
         return AssistantDraft(text=text, handoff_required=False, handoff_reason=None)
 
 
@@ -49,6 +50,7 @@ def detect_handoff(messages: list[dict[str, Any]]) -> str | None:
         for phrase in bot_rules.HANDOFF_PHRASES:
             if phrase in text:
                 return phrase
+        return None
     return None
 
 

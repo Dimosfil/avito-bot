@@ -13,9 +13,16 @@ current project's `AGENTS.md` loading contract and the routed
 `patterns/AGENTS_RUNTIME/` module for that command. If the routed module is
 missing, stop and report the missing path instead of acting from memory.
 
-For `gi restart`, `gi reboot`, `ги рестарт`, `ги ребут`, and equivalent aliases,
-read `patterns/AGENTS_RUNTIME/09-project-operation-commands.md` before any
-process inspection, stop, start, or success report.
+For `gi restart`, `gi reboot`, `gi docker`, `ги рестарт`, `ги ребут`,
+`ги докер`, and equivalent aliases, read
+`patterns/AGENTS_RUNTIME/09-project-operation-commands.md` before any process
+inspection, Docker build, stop, start, or success report.
+
+Before any `gi` command writes files, agents must verify that the active project
+root and target identity match the current request. If the request appears to
+target another product, repository, or absolute path outside the current root,
+stop and warn the user unless the current message explicitly authorizes that
+exact external path and action.
 
 ## Команды Для Чата С Агентом
 
@@ -108,6 +115,7 @@ gi ftp
 ги конфиг сервис off
 gi reboot
 gi restart
+gi docker
 gi first test
 gi default
 gi defaults
@@ -116,6 +124,7 @@ gi первый тест
 ги первый тест
 ги ребут
 ги рестарт
+ги докер
 ги конфиг сервис урл=http://127.0.0.1:4100
 gi install
 gi local sprint
@@ -196,6 +205,7 @@ the listed commands.
 | `gi config service on`, `gi config service off` | Toggle current app self-registration with config-service. |
 | `gi prod`, `gi production`, `gi прод`, `ги прод` | Publish the current development version into the documented production service folder for a live online service. |
 | `gi reboot`, `gi restart`, `ги ребут`, `ги рестарт` | Start or restart all documented project apps using local run instructions. |
+| `gi docker`, `ги докер` | Restart the current project's documented Docker/Compose runtime, rebuilding first when local Docker state requires it. |
 | `gi first test`, `gi первый тест` | Reset documented first-run state and verify first-launch experience. |
 | `gi default`, `gi defaults`, `ги дефолт` | Restore the current project to documented first-run/default state. |
 | `gi install`, `gi инсталл`, `ги инсталл` | Build/package the current project and verify an installer artifact; default target is Windows unless another platform is named. |
@@ -414,6 +424,41 @@ GI/RAG indexes or tools. If no project rebuild contract exists, the agent asks
 one short clarification question instead of inventing a command. Use
 `gi tools rebuild` or `gi rag rebuild` when the GI/RAG layer itself must be
 rebuilt.
+
+### Docker Runtime
+
+```text
+gi docker
+ги докер
+```
+
+`gi docker` asks the agent to restart the current project's documented
+Docker/Compose runtime and decide whether a rebuild is needed before restart.
+The agent first reads project-local run/deploy instructions, Dockerfile or
+Containerfile, `compose.yaml`, `compose.yml`, `docker-compose*.yml`, container
+scripts, manifests, service records, and project memory that define Docker
+ownership and health checks.
+
+If the project has no Docker/Compose config and no documented Docker run
+contract, the agent reports that Docker is not configured for this project and
+does not invent a container command. If Docker CLI, Docker Compose, or the
+Docker engine is unavailable or not running, the agent reports that blocker
+instead of treating the restart as complete.
+
+The agent rebuilds before restart when the image is missing, the local Docker
+contract says to rebuild, Dockerfile/Compose/build-context/dependency manifests
+changed since the known running image, or the agent cannot confidently prove
+that the current image matches the working tree. Prefer the project-documented
+command when present; otherwise use the narrow Compose command for the project
+such as `docker compose up -d --build`, letting Docker's cache no-op unchanged
+layers. When the image is current and containers only need a restart, use the
+documented restart/up command without a rebuild.
+
+The command is scoped to the current project only. Do not prune Docker system
+state, remove volumes, delete images, or stop unrelated containers. After the
+operation, verify documented container status, health checks, mapped service
+URLs, and recent logs when failures appear, then report rebuilt/restarted/not
+configured/blocked status with evidence.
 
 ### Rebuild GI/RAG Tools
 
@@ -978,7 +1023,10 @@ code, duplicated business logic, oversized modules, dependency direction, typed
 or validated contracts, tests, and project-memory updates.
 
 The agent works in small verifiable batches and preserves user-visible behavior
-unless the user explicitly changes it. It asks before destructive operations,
+unless the user explicitly changes it. It separates structural refactor work
+from development work such as new behavior, validation, observability,
+integrations, runtime flows, or new public contracts; verification and service
+operations stay labeled separately too. It asks before destructive operations,
 data migrations, public API or storage contract changes, dependency
 replacements, broad formatting-only churn, or private/external paths. After
 meaningful batches, it runs documented checks for affected areas, updates
@@ -1266,6 +1314,22 @@ report that as a blocker or partial failure instead of success. Published
 hosting environments follow their hosting or production deploy contract and are
 not restarted by local `gi reboot` unless project-local production instructions
 explicitly define that behavior.
+
+`gi docker` / `ги докер` restarts the current project's documented Docker or
+Docker Compose runtime. The agent first reads project-local Docker/run
+instructions, compose files, Dockerfile or Containerfile, scripts, manifests,
+service records, and health-check contracts. If no Docker/Compose config or
+documented Docker run contract exists, report that Docker is not configured for
+this project and stop. If Docker CLI, Docker Compose, or the Docker engine is
+missing or unavailable, report that blocker. Rebuild before restart when the
+image is missing, local Docker/build inputs changed, the local contract requires
+it, or freshness cannot be proven; otherwise restart/up the existing current
+image. Prefer documented commands; without one, use the narrow project Compose
+command such as `docker compose up -d --build` when rebuilding is needed, or
+`docker compose up -d` / documented restart when it is not. Do not prune Docker
+state, remove volumes/images, or stop unrelated containers. Verify container
+status, health checks, mapped URLs, and relevant recent logs before reporting
+rebuilt/restarted/not-configured/blocked status.
 
 `gi first test` / `gi первый тест` / `ги первый тест` resets only documented
 project-owned application cache, generated state, temporary first-run profiles,

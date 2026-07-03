@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>avito-bot · AI Inbox</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260626-ai-inbox-chevron" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260703-resizable-panels" />
   </head>
   <body>
     <main class="app-shell">
@@ -60,6 +60,15 @@
           <div id="chatList" class="chat-list"></div>
         </aside>
 
+        <div
+          class="workspace-resizer"
+          data-resize-target="chat-left"
+          role="separator"
+          tabindex="0"
+          aria-orientation="vertical"
+          aria-label="Изменить ширину списка лидов"
+        ></div>
+
         <section class="panel conversation-panel" aria-label="Диалог с клиентом">
           <div class="panel-header conversation-header">
             <div class="conversation-heading">
@@ -91,6 +100,15 @@
             <button id="sendButton" class="primary-action" type="submit" disabled>Отправить</button>
           </form>
         </section>
+
+        <div
+          class="workspace-resizer"
+          data-resize-target="chat-right"
+          role="separator"
+          tabindex="0"
+          aria-orientation="vertical"
+          aria-label="Изменить ширину контекста"
+        ></div>
 
         <aside class="panel inspector-panel" aria-label="Контекст и диагностика">
           <div class="panel-header">
@@ -164,6 +182,15 @@
           <div id="statsItemList" class="stats-item-list"></div>
         </aside>
 
+        <div
+          class="workspace-resizer"
+          data-resize-target="stats-left"
+          role="separator"
+          tabindex="0"
+          aria-orientation="vertical"
+          aria-label="Изменить ширину списка объявлений"
+        ></div>
+
         <section class="panel stats-results-panel">
           <div class="panel-header">
             <div>
@@ -192,6 +219,6 @@
     </main>
 
     <script src="/static/bot-rules.js"></script>
-    <script src="/static/app.js?v=20260626-ai-inbox-chevron"></script>
+    <script src="/static/app.js?v=20260703-resizable-panels"></script>
   </body>
 </html>

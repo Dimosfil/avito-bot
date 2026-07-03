@@ -28,9 +28,12 @@
   hard-coded deploy/user/runtime/model/product values, development-tool versus
   generated-product boundaries, SOLID/DRY/clean-code issues, duplicated
   business logic, oversized modules, dependency direction, typed or validated
-  contracts, tests, and project-memory updates. Execute in small verifiable
-  batches, preserving user-visible behavior unless the user explicitly changes
-  it. Ask before destructive operations, data migrations, public API or storage
+  contracts, tests, and project-memory updates. Separate structural refactor
+  work from development work such as new behavior, validation, observability,
+  integrations, runtime flows, or new public contracts; also keep verification
+  and service operations labeled as such. Execute in small verifiable batches,
+  preserving user-visible behavior unless the user explicitly changes it. Ask
+  before destructive operations, data migrations, public API or storage
   contract changes, dependency replacements, broad formatting-only churn, or
   touching private/external paths. After each meaningful batch, run documented
   checks for the affected area, update durable project-memory specs for

@@ -4,6 +4,11 @@
   third-party source trees as separate scope. Do not inspect them as part of the
   main project unless the user explicitly asks, the task is about that nested
   tree, or local instructions identify it as an active workspace component.
+- Treat other local product or repository roots as separate scope even when a
+  request, screenshot, task-manager note, summary, or old chat context mentions
+  them. If the current root's identity does not match the requested product or
+  target path, stop and warn before reading or writing files there unless the
+  user explicitly named that external path and action in the current message.
 - Treat user-home application data and personal telemetry as private external
   sources. Do not read `.codex`, `.cursor`, IDE logs, browser profiles, shell
   history, application SQLite databases, or local app logs outside the project

@@ -36,8 +36,19 @@ Trigger categories:
 - AI must not continue negotiating once `manager_active` is set.
 - Manager manual takeover overrides AI automation immediately.
 - A manager should see the trigger reason that caused the alert.
-- False positives should be reversible by the manager returning the conversation
-  to AI only if the product later supports that action.
+- When a handoff trigger is detected during backend auto-processing, the backend
+  must persist the chat in the qualified-buying list, record a durable
+  `handoff_required` manager action, and send a Telegram manager notification
+  when `TELEGRAM_BOT_TOKEN` and `MANAGER_TELEGRAM_CHAT_ID` are configured.
+- Chats in the qualified-buying list stay in AI mode by default. This keeps the
+  client warm while a manager is busy or has not connected yet.
+- A handoff trigger should produce a short client-facing AI reply such as
+  "передам информацию менеджеру" before notifying the manager. The chat becomes
+  manual only after a manager explicitly turns manual mode on.
+- Telegram notification failures must be recorded with the handoff action but
+  must not cause an Avito auto-processing failure or an accidental AI reply.
+- Manual takeover is reversible: a manager may return any chat to AI by turning
+  manual mode off for that chat.
 
 ## MVP Non-Goals
 
