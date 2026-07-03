@@ -15,6 +15,13 @@ from app.config import Settings
 
 
 SCHEMA_VERSION = "1"
+APPLICATION_TABLES = (
+    "app_meta",
+    "runtime_state",
+    "conversations",
+    "messages",
+    "manager_actions",
+)
 
 
 @dataclass(frozen=True)
@@ -291,6 +298,38 @@ class RuntimeStore:
             created_at=created_at,
         )
 
+    def export_data(self) -> dict[str, Any]:
+        self.ensure_schema()
+        export: dict[str, Any] = {
+            "schema_version": SCHEMA_VERSION,
+            "created_at": int(time.time()),
+            "source_backend": self.backend,
+            "tables": {},
+        }
+        if self.backend == "postgres":
+            with self._postgres_connection() as con:
+                with con.cursor() as cur:
+                    for table in APPLICATION_TABLES:
+                        cur.execute(f"SELECT * FROM {table} ORDER BY 1")
+                        columns = [column.name for column in cur.description]
+                        export["tables"][table] = [dict(zip(columns, row)) for row in cur.fetchall()]
+            return export
+        assert self.sqlite_path is not None
+        with sqlite3.connect(self.sqlite_path) as con:
+            con.row_factory = sqlite3.Row
+            for table in APPLICATION_TABLES:
+                export["tables"][table] = [dict(row) for row in con.execute(f"SELECT * FROM {table} ORDER BY 1")]
+        return export
+
+    def import_data(self, export: dict[str, Any]) -> dict[str, int]:
+        self.ensure_schema()
+        tables = export.get("tables", {})
+        if not isinstance(tables, dict):
+            raise ValueError("Runtime storage export must contain a tables object")
+        if self.backend == "postgres":
+            return self._import_postgres_tables(tables)
+        return self._import_sqlite_tables(tables)
+
     def prune_backups(self, keep: int = 14) -> None:
         if keep <= 0 or not self.backup_dir.exists():
             return
@@ -358,23 +397,213 @@ class RuntimeStore:
         return psycopg.connect(self.database_url)
 
     def _export_json_backup(self, backup_path: Path) -> None:
-        export: dict[str, Any] = {"schema_version": SCHEMA_VERSION, "created_at": int(time.time()), "tables": {}}
-        if self.backend == "postgres":
-            with self._postgres_connection() as con:
-                with con.cursor() as cur:
-                    for table in ("app_meta", "runtime_state", "conversations", "messages", "manager_actions"):
-                        cur.execute(f"SELECT * FROM {table}")
-                        columns = [column.name for column in cur.description]
-                        export["tables"][table] = [dict(zip(columns, row)) for row in cur.fetchall()]
-        else:
-            assert self.sqlite_path is not None
-            with sqlite3.connect(self.sqlite_path) as con:
-                con.row_factory = sqlite3.Row
-                for table in ("app_meta", "runtime_state", "conversations", "messages", "manager_actions"):
-                    export["tables"][table] = [dict(row) for row in con.execute(f"SELECT * FROM {table}")]
+        export = self.export_data()
         temp_path = backup_path.with_suffix(".json.tmp")
         temp_path.write_text(json.dumps(export, ensure_ascii=False, indent=2), encoding="utf-8")
         temp_path.replace(backup_path)
+
+    def _import_postgres_tables(self, tables: dict[str, Any]) -> dict[str, int]:
+        counts = _table_counts(tables)
+        with self._postgres_connection() as con:
+            with con.cursor() as cur:
+                for row in _rows(tables, "app_meta"):
+                    cur.execute(
+                        """
+                        INSERT INTO app_meta(key, value) VALUES (%s, %s)
+                        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+                        """,
+                        (row["key"], row["value"]),
+                    )
+                for row in _rows(tables, "runtime_state"):
+                    cur.execute(
+                        """
+                        INSERT INTO runtime_state(key, value_json, updated_at)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (key) DO UPDATE
+                        SET value_json = EXCLUDED.value_json, updated_at = EXCLUDED.updated_at
+                        """,
+                        (row["key"], row["value_json"], row["updated_at"]),
+                    )
+                for row in _rows(tables, "conversations"):
+                    cur.execute(
+                        """
+                        INSERT INTO conversations(
+                            id, channel, external_chat_id, external_item_key, title, payload_json, updated_at
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (channel, external_chat_id) DO UPDATE
+                        SET external_item_key = EXCLUDED.external_item_key,
+                            title = EXCLUDED.title,
+                            payload_json = EXCLUDED.payload_json,
+                            updated_at = EXCLUDED.updated_at
+                        """,
+                        (
+                            row["id"],
+                            row["channel"],
+                            row["external_chat_id"],
+                            row.get("external_item_key"),
+                            row.get("title"),
+                            row["payload_json"],
+                            row["updated_at"],
+                        ),
+                    )
+                for row in _rows(tables, "messages"):
+                    cur.execute(
+                        """
+                        INSERT INTO messages(
+                            id, channel, external_chat_id, message_key, external_message_id, direction,
+                            message_type, author_role, created_at, text, payload_json, received_at
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (channel, external_chat_id, message_key) DO UPDATE
+                        SET external_message_id = EXCLUDED.external_message_id,
+                            direction = EXCLUDED.direction,
+                            message_type = EXCLUDED.message_type,
+                            author_role = EXCLUDED.author_role,
+                            created_at = EXCLUDED.created_at,
+                            text = EXCLUDED.text,
+                            payload_json = EXCLUDED.payload_json,
+                            received_at = EXCLUDED.received_at
+                        """,
+                        (
+                            row["id"],
+                            row["channel"],
+                            row["external_chat_id"],
+                            row["message_key"],
+                            row.get("external_message_id"),
+                            row.get("direction"),
+                            row.get("message_type"),
+                            row.get("author_role"),
+                            row.get("created_at"),
+                            row.get("text"),
+                            row["payload_json"],
+                            row["received_at"],
+                        ),
+                    )
+                for row in _rows(tables, "manager_actions"):
+                    cur.execute(
+                        """
+                        INSERT INTO manager_actions(id, channel, external_chat_id, action_type, payload_json, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (id) DO UPDATE
+                        SET channel = EXCLUDED.channel,
+                            external_chat_id = EXCLUDED.external_chat_id,
+                            action_type = EXCLUDED.action_type,
+                            payload_json = EXCLUDED.payload_json,
+                            created_at = EXCLUDED.created_at
+                        """,
+                        (
+                            row["id"],
+                            row["channel"],
+                            row["external_chat_id"],
+                            row["action_type"],
+                            row["payload_json"],
+                            row["created_at"],
+                        ),
+                    )
+                _sync_postgres_sequence(cur, "conversations", "id")
+                _sync_postgres_sequence(cur, "messages", "id")
+                _sync_postgres_sequence(cur, "manager_actions", "id")
+        return counts
+
+    def _import_sqlite_tables(self, tables: dict[str, Any]) -> dict[str, int]:
+        counts = _table_counts(tables)
+        assert self.sqlite_path is not None
+        with sqlite3.connect(self.sqlite_path) as con:
+            for row in _rows(tables, "app_meta"):
+                con.execute(
+                    """
+                    INSERT INTO app_meta(key, value) VALUES (?, ?)
+                    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                    """,
+                    (row["key"], row["value"]),
+                )
+            for row in _rows(tables, "runtime_state"):
+                con.execute(
+                    """
+                    INSERT INTO runtime_state(key, value_json, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(key) DO UPDATE
+                    SET value_json = excluded.value_json, updated_at = excluded.updated_at
+                    """,
+                    (row["key"], row["value_json"], row["updated_at"]),
+                )
+            for row in _rows(tables, "conversations"):
+                con.execute(
+                    """
+                    INSERT INTO conversations(id, channel, external_chat_id, external_item_key, title, payload_json, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(channel, external_chat_id) DO UPDATE
+                    SET external_item_key = excluded.external_item_key,
+                        title = excluded.title,
+                        payload_json = excluded.payload_json,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        row["id"],
+                        row["channel"],
+                        row["external_chat_id"],
+                        row.get("external_item_key"),
+                        row.get("title"),
+                        row["payload_json"],
+                        row["updated_at"],
+                    ),
+                )
+            for row in _rows(tables, "messages"):
+                con.execute(
+                    """
+                    INSERT INTO messages(
+                        id, channel, external_chat_id, message_key, external_message_id, direction,
+                        message_type, author_role, created_at, text, payload_json, received_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(channel, external_chat_id, message_key) DO UPDATE
+                    SET external_message_id = excluded.external_message_id,
+                        direction = excluded.direction,
+                        message_type = excluded.message_type,
+                        author_role = excluded.author_role,
+                        created_at = excluded.created_at,
+                        text = excluded.text,
+                        payload_json = excluded.payload_json,
+                        received_at = excluded.received_at
+                    """,
+                    (
+                        row["id"],
+                        row["channel"],
+                        row["external_chat_id"],
+                        row["message_key"],
+                        row.get("external_message_id"),
+                        row.get("direction"),
+                        row.get("message_type"),
+                        row.get("author_role"),
+                        row.get("created_at"),
+                        row.get("text"),
+                        row["payload_json"],
+                        row["received_at"],
+                    ),
+                )
+            for row in _rows(tables, "manager_actions"):
+                con.execute(
+                    """
+                    INSERT INTO manager_actions(id, channel, external_chat_id, action_type, payload_json, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE
+                    SET channel = excluded.channel,
+                        external_chat_id = excluded.external_chat_id,
+                        action_type = excluded.action_type,
+                        payload_json = excluded.payload_json,
+                        created_at = excluded.created_at
+                    """,
+                    (
+                        row["id"],
+                        row["channel"],
+                        row["external_chat_id"],
+                        row["action_type"],
+                        row["payload_json"],
+                        row["created_at"],
+                    ),
+                )
+        return counts
 
 
 POSTGRES_SCHEMA = [
@@ -501,3 +730,27 @@ def _message_row(chat_id: str, message: dict[str, Any]) -> tuple[Any, ...]:
 def _stable_message_key(message: dict[str, Any]) -> str:
     payload = json.dumps(message, ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
+
+
+def _rows(tables: dict[str, Any], table: str) -> list[dict[str, Any]]:
+    rows = tables.get(table, [])
+    if not isinstance(rows, list):
+        raise ValueError(f"Runtime storage export table {table} must be a list")
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def _table_counts(tables: dict[str, Any]) -> dict[str, int]:
+    return {table: len(_rows(tables, table)) for table in APPLICATION_TABLES}
+
+
+def _sync_postgres_sequence(cur: Any, table: str, column: str) -> None:
+    cur.execute(
+        """
+        SELECT setval(
+            pg_get_serial_sequence(%s, %s),
+            COALESCE((SELECT MAX(id) FROM """ + table + """), 1),
+            EXISTS(SELECT 1 FROM """ + table + """)
+        )
+        """,
+        (table, column),
+    )

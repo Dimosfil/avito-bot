@@ -127,6 +127,14 @@ Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/storage/backup"
 docker compose down
 ```
 
+Migrate existing local SQLite runtime state into PostgreSQL before switching a
+host to `DATABASE_URL`:
+
+```powershell
+$env:DATABASE_URL = "<postgresql connection string>"
+uv run python tools/migrate_runtime_storage.py
+```
+
 Do not delete `.codex-runtime/` on a live host. It stores server-side autoreply,
 pending autoreply, and manager takeover state when external storage is not
 configured. When `DATABASE_URL` is set, the same state is stored in PostgreSQL.

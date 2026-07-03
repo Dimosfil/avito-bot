@@ -32,6 +32,35 @@ def test_sqlite_backup_uses_consistent_copy(tmp_path) -> None:
     assert result.bytes > 0
 
 
+def test_runtime_store_import_data_preserves_rows_without_duplicates(tmp_path) -> None:
+    source = RuntimeStore(database_url=None, sqlite_path=tmp_path / "source.sqlite3", backup_dir=tmp_path / "backups")
+    target = RuntimeStore(database_url=None, sqlite_path=tmp_path / "target.sqlite3", backup_dir=tmp_path / "backups")
+
+    source.set_state("autoreply_enabled", True)
+    source.upsert_avito_chats([{"id": "chat-1", "context": {"value": {"id": 123, "title": "Item"}}}])
+    source.upsert_avito_messages(
+        "chat-1",
+        [{"id": "message-1", "created": 10, "direction": "in", "type": "text", "content": {"text": "hello"}}],
+    )
+    source.record_manager_action("chat-1", "takeover", {"enabled": True})
+
+    export = source.export_data()
+    assert target.import_data(export) == {
+        "app_meta": 1,
+        "runtime_state": 1,
+        "conversations": 1,
+        "messages": 1,
+        "manager_actions": 1,
+    }
+    target.import_data(export)
+
+    assert target.get_state("autoreply_enabled") is True
+    with sqlite3.connect(tmp_path / "target.sqlite3") as con:
+        assert con.execute("SELECT count(*) FROM conversations").fetchone()[0] == 1
+        assert con.execute("SELECT count(*) FROM messages").fetchone()[0] == 1
+        assert con.execute("SELECT count(*) FROM manager_actions").fetchone()[0] == 1
+
+
 def test_shared_dir_defaults_for_sqlite_and_backups(tmp_path) -> None:
     settings = Settings(
         avito_client_id=None,
