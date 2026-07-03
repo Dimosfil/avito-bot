@@ -48,6 +48,7 @@ class BotRules:
     price_question_re: re.Pattern[str]
     timing_question_re: re.Pattern[str]
     detail_signal_re: re.Pattern[str]
+    buying_intent_re: re.Pattern[str]
     handoff_phrases: tuple[str, ...]
     prompt: PromptRules
     post_processing: PostProcessingRules
@@ -107,6 +108,11 @@ def load_bot_rules(path: Path | str | None = None) -> BotRules:
         detail_signal_re=_compile_pattern(
             _required_str(intent_patterns, "detail_signal", rules_path),
             "intent_patterns.detail_signal",
+            rules_path,
+        ),
+        buying_intent_re=_compile_pattern(
+            _required_str(intent_patterns, "buying_intent", rules_path),
+            "intent_patterns.buying_intent",
             rules_path,
         ),
         handoff_phrases=_required_str_tuple(data, "handoff_phrases", rules_path),
@@ -235,6 +241,10 @@ def redact_admin_code(text: str) -> str:
     return text.replace(ADMIN_CODE, "[admin code hidden]")
 
 
+def has_buying_intent(text: str) -> bool:
+    return bool(text and BUYING_INTENT_RE.search(text))
+
+
 def _configured_rules_path() -> Path:
     configured_path = os.getenv(RULES_PATH_ENV)
     return Path(configured_path) if configured_path else DEFAULT_RULES_PATH
@@ -302,6 +312,7 @@ ADMIN_MODE_DISABLE_RE = RULES.admin_mode_disable_re
 PRICE_QUESTION_RE = RULES.price_question_re
 TIMING_QUESTION_RE = RULES.timing_question_re
 DETAIL_SIGNAL_RE = RULES.detail_signal_re
+BUYING_INTENT_RE = RULES.buying_intent_re
 HANDOFF_PHRASES = RULES.handoff_phrases
 BASE_SYSTEM_RULES = RULES.prompt.base_system_rules
 GREETING_RE = RULES.post_processing.greeting_re

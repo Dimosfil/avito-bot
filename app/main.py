@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import re
 import time
 from contextlib import asynccontextmanager, suppress
 from datetime import date
@@ -16,13 +14,16 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.ai_client import FallbackAIClient
+from app import autoreply_logic
 from app.assistant import SalesAssistant, order_messages
 from app.avito_payload import chat_item_key, message_text, safe_int
 from app.avito_client import AvitoClient, AvitoConfigError
+from app.bot_rules import has_buying_intent
 from app.codex_app_server_client import CodexAppServerClient, CodexAppServerConfigError
 from app.config import get_settings
 from app.config import Settings
 from app.deepseek_client import DeepSeekClient, DeepSeekConfigError
+from app import manager_notifications, runtime_state
 from app.storage import RuntimeStore
 
 
@@ -36,16 +37,6 @@ QUALIFIED_BUYING_STATE_KEY = "qualified_buying_chat_ids"
 PROCESSED_INBOUND_STATE_KEY = "processed_inbound_message_keys"
 MANAGER_TELEGRAM_NOTIFIED_STATE_KEY = "manager_telegram_notified_message_keys"
 RECENT_READ_CHAT_LOOKBACK_SECONDS = 15 * 60
-BUYING_INTENT_RE = re.compile(
-    r"(хочу\s+(купить|заказать|оформить|сделку|кп)|"
-    r"готов[аы]?\s+(купить|заказать|оформить)|"
-    r"\b(беру|куплю|договорились|определил(?:ся|ись|ась)?)\b|"
-    r"давайте\s+(оформим|сделку|кп)|"
-    r"оформляйте|выставляйте\s+сч[её]т|"
-    r"свяжите\s+с\s+менеджером|позовите\s+менеджера|"
-    r"подготовк[аи]\s+предложени[яе]|точн(ого|ый)\s+расч[её]т)",
-    re.IGNORECASE,
-)
 
 webhook_events: list[dict[str, Any]] = []
 manager_takeover_chat_ids: set[str] = set()
@@ -705,10 +696,7 @@ def _migrate_legacy_runtime_json_to_store() -> None:
 
 
 def _load_json_file(path: Path, *, default: Any) -> Any:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return default
+    return runtime_state.load_json_file(path, default=default)
 
 
 def _persist_avito_chats(chats: list[dict[str, Any]]) -> None:
@@ -729,61 +717,27 @@ def _persist_avito_messages(chat_id: str, messages_response: dict[str, Any]) -> 
 
 
 def _load_autoreply_pending() -> dict[str, dict[str, Any]]:
-    data = get_runtime_store().get_state("autoreply_pending")
-    if data is None:
-        data = _load_json_file(AUTOREPLY_PENDING_PATH, default={}) if AUTOREPLY_PENDING_PATH.exists() else {}
-        if isinstance(data, dict):
-            get_runtime_store().set_state("autoreply_pending", data)
-    if not isinstance(data, dict):
-        return {}
-    pending: dict[str, dict[str, Any]] = {}
-    for chat_id, item in data.items():
-        if isinstance(chat_id, str) and isinstance(item, dict):
-            pending[chat_id] = item
-    return pending
+    return runtime_state.load_autoreply_pending(get_runtime_store(), AUTOREPLY_PENDING_PATH)
 
 
 def _write_autoreply_pending(pending: dict[str, dict[str, Any]]) -> None:
-    get_runtime_store().set_state("autoreply_pending", pending)
-    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-    temp_path = AUTOREPLY_PENDING_PATH.with_suffix(".json.tmp")
-    temp_path.write_text(json.dumps(pending, ensure_ascii=False, indent=2), encoding="utf-8")
-    temp_path.replace(AUTOREPLY_PENDING_PATH)
+    runtime_state.write_autoreply_pending(get_runtime_store(), AUTOREPLY_PENDING_PATH, pending)
 
 
 def _save_autoreply_pending_item(chat_id: str, item: dict[str, Any]) -> None:
-    pending = _load_autoreply_pending()
-    pending[chat_id] = item
-    _write_autoreply_pending(pending)
+    runtime_state.save_autoreply_pending_item(get_runtime_store(), AUTOREPLY_PENDING_PATH, chat_id, item)
 
 
 def _clear_autoreply_pending(chat_id: str) -> None:
-    pending = _load_autoreply_pending()
-    if chat_id not in pending:
-        return
-    del pending[chat_id]
-    if pending:
-        _write_autoreply_pending(pending)
-    else:
-        get_runtime_store().set_state("autoreply_pending", {})
-        AUTOREPLY_PENDING_PATH.unlink(missing_ok=True)
+    runtime_state.clear_autoreply_pending(get_runtime_store(), AUTOREPLY_PENDING_PATH, chat_id)
 
 
 def _load_autoreply_enabled() -> bool:
-    data = get_runtime_store().get_state("autoreply_enabled")
-    if data is None:
-        legacy = _load_json_file(AUTOREPLY_STATE_PATH, default={}) if AUTOREPLY_STATE_PATH.exists() else {}
-        data = bool(isinstance(legacy, dict) and legacy.get("enabled") is True)
-        get_runtime_store().set_state("autoreply_enabled", data)
-    return bool(data)
+    return runtime_state.load_autoreply_enabled(get_runtime_store(), AUTOREPLY_STATE_PATH)
 
 
 def _save_autoreply_enabled(enabled: bool) -> None:
-    get_runtime_store().set_state("autoreply_enabled", enabled)
-    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-    temp_path = AUTOREPLY_STATE_PATH.with_suffix(".json.tmp")
-    temp_path.write_text(json.dumps({"enabled": enabled}, ensure_ascii=False, indent=2), encoding="utf-8")
-    temp_path.replace(AUTOREPLY_STATE_PATH)
+    runtime_state.save_autoreply_enabled(get_runtime_store(), AUTOREPLY_STATE_PATH, enabled)
 
 
 def _ensure_bot_control_state_loaded() -> None:
@@ -791,58 +745,33 @@ def _ensure_bot_control_state_loaded() -> None:
     if bot_control_state_loaded:
         return
     bot_control_state_loaded = True
-    data = get_runtime_store().get_state("bot_control")
-    if data is None and BOT_CONTROL_STATE_PATH.exists():
-        data = _load_json_file(BOT_CONTROL_STATE_PATH, default={})
-        if isinstance(data, dict):
-            get_runtime_store().set_state("bot_control", data)
-    if data is None:
-        return
-    if not isinstance(data, dict):
-        return
-
-    known_chat_ids = data.get("known_chat_ids", [])
-    known_item_keys = data.get("known_item_keys", [])
-    takeover_chat_ids = data.get("manager_takeover_chat_ids", [])
-    explicit_takeover_chat_ids = data.get("explicit_manager_takeover_chat_ids", [])
-    if isinstance(known_chat_ids, list):
-        known_bot_control_chat_ids.update(str(chat_id) for chat_id in known_chat_ids if chat_id)
-    if isinstance(known_item_keys, list):
-        known_bot_control_item_keys.update(str(item_key) for item_key in known_item_keys if item_key)
-    if isinstance(takeover_chat_ids, list):
-        manager_takeover_chat_ids.update(str(chat_id) for chat_id in takeover_chat_ids if chat_id)
-    if isinstance(explicit_takeover_chat_ids, list):
-        explicit_manager_takeover_chat_ids.update(str(chat_id) for chat_id in explicit_takeover_chat_ids if chat_id)
+    known_chat_ids, known_item_keys, takeover_chat_ids, explicit_takeover_chat_ids = runtime_state.load_bot_control_state(
+        get_runtime_store(),
+        BOT_CONTROL_STATE_PATH,
+    )
+    known_bot_control_chat_ids.update(known_chat_ids)
+    known_bot_control_item_keys.update(known_item_keys)
+    manager_takeover_chat_ids.update(takeover_chat_ids)
+    explicit_manager_takeover_chat_ids.update(explicit_takeover_chat_ids)
 
 
 def _save_bot_control_state() -> None:
-    data = {
-        "known_chat_ids": sorted(known_bot_control_chat_ids),
-        "known_item_keys": sorted(known_bot_control_item_keys),
-        "manager_takeover_chat_ids": sorted(manager_takeover_chat_ids),
-        "explicit_manager_takeover_chat_ids": sorted(explicit_manager_takeover_chat_ids),
-    }
-    get_runtime_store().set_state("bot_control", data)
-    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-    temp_path = BOT_CONTROL_STATE_PATH.with_suffix(".json.tmp")
-    temp_path.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2),
-        encoding="utf-8",
+    runtime_state.save_bot_control_state(
+        get_runtime_store(),
+        BOT_CONTROL_STATE_PATH,
+        known_chat_ids=known_bot_control_chat_ids,
+        known_item_keys=known_bot_control_item_keys,
+        manager_takeover_chat_ids=manager_takeover_chat_ids,
+        explicit_manager_takeover_chat_ids=explicit_manager_takeover_chat_ids,
     )
-    temp_path.replace(BOT_CONTROL_STATE_PATH)
 
 
 def _load_qualified_buying_chat_ids() -> set[str]:
-    data = get_runtime_store().get_state(QUALIFIED_BUYING_STATE_KEY)
-    if isinstance(data, list):
-        return _normalize_chat_ids(data)
-    if isinstance(data, dict):
-        return _normalize_chat_ids(data.get("chat_ids", []))
-    return set()
+    return runtime_state.load_qualified_buying_chat_ids(get_runtime_store(), QUALIFIED_BUYING_STATE_KEY)
 
 
 def _save_qualified_buying_chat_ids(chat_ids: set[str]) -> None:
-    get_runtime_store().set_state(QUALIFIED_BUYING_STATE_KEY, sorted(chat_ids))
+    runtime_state.save_qualified_buying_chat_ids(get_runtime_store(), QUALIFIED_BUYING_STATE_KEY, chat_ids)
 
 
 def _add_qualified_buying_chat_id(chat_id: str) -> None:
@@ -916,11 +845,11 @@ def _messages_have_buying_intent(messages_response: dict[str, Any]) -> bool:
 
 
 def _has_buying_intent(text: str) -> bool:
-    return bool(text and BUYING_INTENT_RE.search(text))
+    return has_buying_intent(text)
 
 
 def _normalize_chat_ids(chat_ids: list[Any]) -> set[str]:
-    return {str(chat_id).strip() for chat_id in chat_ids if str(chat_id).strip()}
+    return runtime_state.normalize_chat_ids(chat_ids)
 
 
 def _track_bot_control_items(chats: list[dict[str, Any]]) -> None:
@@ -1066,252 +995,117 @@ def _format_manager_telegram_message(
     message_text_value: str | None,
     reason: str | None,
 ) -> str:
-    item_title = _telegram_item_title(chat)
-    item_url = _telegram_item_url(chat)
-    profile_url = _telegram_client_profile_url(chat)
-    local_url = _manager_local_chat_url(chat_id)
-
-    lines = [
-        title,
-        "",
-        "Канал: Avito",
-        f"Чат: {chat_id}",
-        f"Клиент: {_telegram_client_name(chat)}",
-        f"Объявление: {item_title}",
-        f"Причина: {reason or _telegram_reason_for_manager_folder_chat(chat) or 'не указана'}",
-        "",
-        "Последнее сообщение:",
-        message_text_value or "без текста",
-    ]
-    if profile_url:
-        lines.extend(["", f"Профиль клиента: {profile_url}"])
-    if item_url:
-        lines.append(f"Объявление Avito: {item_url}")
-    if local_url:
-        lines.append(f"Ссылка: {local_url}")
-    return "\n".join(lines)
+    return manager_notifications._format_manager_telegram_message(
+        title=title,
+        chat=chat,
+        chat_id=chat_id,
+        message_text_value=message_text_value,
+        reason=reason,
+    )
 
 
 def _telegram_client_name(chat: dict[str, Any]) -> str:
-    item = _telegram_item_context(chat)
-    seller_id = _string_id(item.get("user_id") or chat.get("seller_id") or chat.get("owner_id") or chat.get("account_id"))
-    title = _clean_text(chat.get("title") or chat.get("name") or chat.get("display_name") or chat.get("chat_title"))
-    item_title = _telegram_item_title(chat)
-    if title and title != item_title:
-        return title
-
-    direct_name = _pick_person_name(chat.get("buyer") or chat.get("client") or chat.get("customer") or chat.get("sender"))
-    if direct_name:
-        return direct_name
-
-    for user in _telegram_chat_users(chat):
-        user_id = _string_id(user.get("id") or user.get("user_id") or user.get("author_id") or (user.get("public_user_profile") or {}).get("user_id"))
-        if seller_id and user_id == seller_id:
-            continue
-        name = _pick_person_name(user)
-        if name:
-            return name
-    return "не определен"
+    return manager_notifications._telegram_client_name(chat)
 
 
 def _telegram_item_title(chat: dict[str, Any]) -> str:
-    item = _telegram_item_context(chat)
-    return _clean_text(item.get("title") or (chat.get("context") or {}).get("title") or chat.get("item_title")) or "не определено"
+    return manager_notifications._telegram_item_title(chat)
 
 
 def _telegram_item_url(chat: dict[str, Any]) -> str:
-    item = _telegram_item_context(chat)
-    return _clean_text(
-        item.get("url")
-        or item.get("uri")
-        or item.get("link")
-        or item.get("external_url")
-        or chat.get("item_url")
-        or chat.get("item_link")
-    )
+    return manager_notifications._telegram_item_url(chat)
 
 
 def _telegram_client_profile_url(chat: dict[str, Any]) -> str:
-    direct_url = _clean_text(
-        (chat.get("buyer") or {}).get("profile_url")
-        or (chat.get("buyer") or {}).get("url")
-        or (chat.get("client") or {}).get("profile_url")
-        or (chat.get("client") or {}).get("url")
-        or (chat.get("user") or {}).get("profile_url")
-        or (chat.get("user") or {}).get("url")
-    )
-    if direct_url:
-        return direct_url
-    for user in _telegram_chat_users(chat):
-        url = _clean_text(user.get("profile_url") or user.get("url") or (user.get("public_user_profile") or {}).get("url"))
-        if url:
-            return url
-    return ""
+    return manager_notifications._telegram_client_profile_url(chat)
 
 
 def _telegram_reason_for_manager_folder_chat(chat: dict[str, Any]) -> str:
-    signals = [
-        chat.get("handoff_reason"),
-        chat.get("handoff_status"),
-        chat.get("deal_status"),
-        chat.get("order_status"),
-    ]
-    for signal in signals:
-        value = _clean_text(signal)
-        if value:
-            return value
-    return "менеджерская папка"
+    return manager_notifications._telegram_reason_for_manager_folder_chat(chat)
 
 
 def _manager_local_chat_url(chat_id: str) -> str:
-    if not chat_id:
-        return "http://127.0.0.1:8000"
-    return f"http://127.0.0.1:8000/?chat={chat_id}"
+    return manager_notifications._manager_local_chat_url(chat_id)
 
 
 def _telegram_item_context(chat: dict[str, Any]) -> dict[str, Any]:
-    context = chat.get("context")
-    if isinstance(context, dict) and isinstance(context.get("value"), dict):
-        return context["value"]
-    item = chat.get("item")
-    if isinstance(item, dict):
-        return item
-    return {}
+    return manager_notifications._telegram_item_context(chat)
 
 
 def _telegram_chat_users(chat: dict[str, Any]) -> list[dict[str, Any]]:
-    users: list[dict[str, Any]] = []
-    for source in (chat.get("users"), chat.get("participants"), chat.get("members"), (chat.get("context") or {}).get("users")):
-        if isinstance(source, list):
-            users.extend(user for user in source if isinstance(user, dict))
-    return users
+    return manager_notifications._telegram_chat_users(chat)
 
 
 def _pick_person_name(person: object) -> str:
-    if not isinstance(person, dict):
-        return ""
-    return _clean_text(
-        person.get("name")
-        or person.get("display_name")
-        or person.get("title")
-        or (person.get("profile") or {}).get("name")
-        or (person.get("public_user_profile") or {}).get("name")
-    )
+    return manager_notifications._pick_person_name(person)
 
 
 def _clean_text(value: object) -> str:
-    return " ".join(value.split()) if isinstance(value, str) else ""
+    return manager_notifications._clean_text(value)
 
 
 def _string_id(value: object) -> str:
-    return "" if value is None else str(value)
+    return manager_notifications._string_id(value)
 
 
 async def _send_telegram_notification(settings: Settings, text: str) -> dict[str, object]:
-    if not settings.telegram_bot_token or not settings.manager_telegram_chat_id:
-        return {"status": "skipped", "reason": "telegram_not_configured"}
-
-    url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage"
-    payload = {
-        "chat_id": settings.manager_telegram_chat_id,
-        "text": text,
-        "disable_web_page_preview": True,
-    }
-    try:
-        async with httpx.AsyncClient(timeout=settings.telegram_notify_timeout_seconds) as client:
-            response = await client.post(url, json=payload)
-            response.raise_for_status()
-    except Exception as exc:  # notification must not block Avito processing
-        return {"status": "failed", "error": _error_detail(exc)}
-    return {"status": "sent"}
+    return await manager_notifications._send_telegram_notification(settings, text)
 
 
 def _latest_non_system_message(messages_response: dict[str, Any]) -> dict[str, Any] | None:
-    messages = order_messages(list(messages_response.get("messages", [])))
-    for message in reversed(messages):
-        if message.get("type") != "system":
-            return message
-    return None
+    return autoreply_logic.latest_non_system_message(messages_response)
 
 
 def _is_recent_chat(chat: dict[str, Any], *, now: float) -> bool:
-    updated_at = safe_int(chat.get("updated") or chat.get("updated_at"))
-    if updated_at is None:
-        last_message = chat.get("last_message")
-        if isinstance(last_message, dict):
-            updated_at = safe_int(last_message.get("created") or last_message.get("created_at"))
-    if updated_at is None:
-        return False
-    return updated_at >= int(now) - RECENT_READ_CHAT_LOOKBACK_SECONDS
+    return autoreply_logic.is_recent_chat(chat, now=now, lookback_seconds=RECENT_READ_CHAT_LOOKBACK_SECONDS)
 
 
 def _load_processed_inbound_messages() -> dict[str, str]:
-    data = get_runtime_store().get_state(PROCESSED_INBOUND_STATE_KEY)
-    if not isinstance(data, dict):
-        return {}
-    return {str(chat_id): str(message_key) for chat_id, message_key in data.items() if chat_id and message_key}
+    return runtime_state.load_processed_inbound_messages(get_runtime_store(), PROCESSED_INBOUND_STATE_KEY)
 
 
 def _load_manager_telegram_notified_message_keys() -> dict[str, set[str]]:
-    data = get_runtime_store().get_state(MANAGER_TELEGRAM_NOTIFIED_STATE_KEY)
-    if not isinstance(data, dict):
-        return {}
-    result: dict[str, set[str]] = {}
-    for chat_id, message_keys in data.items():
-        if not chat_id or not isinstance(message_keys, list):
-            continue
-        result[str(chat_id)] = {str(message_key) for message_key in message_keys if message_key}
-    return result
+    return runtime_state.load_notified_message_keys(get_runtime_store(), MANAGER_TELEGRAM_NOTIFIED_STATE_KEY)
 
 
 def _save_manager_telegram_notified_message_keys(state: dict[str, set[str]]) -> None:
-    data = {chat_id: sorted(message_keys)[-100:] for chat_id, message_keys in state.items() if message_keys}
-    get_runtime_store().set_state(MANAGER_TELEGRAM_NOTIFIED_STATE_KEY, data)
+    runtime_state.save_notified_message_keys(get_runtime_store(), MANAGER_TELEGRAM_NOTIFIED_STATE_KEY, state)
 
 
 def _mark_processed_inbound_message(state: dict[str, str], chat_id: str, message: dict[str, Any]) -> None:
-    state[chat_id] = _message_processing_key(message)
-    get_runtime_store().set_state(PROCESSED_INBOUND_STATE_KEY, state)
+    runtime_state.mark_processed_inbound_message(
+        get_runtime_store(),
+        PROCESSED_INBOUND_STATE_KEY,
+        state,
+        chat_id,
+        _message_processing_key(message),
+    )
 
 
 def _mark_manager_telegram_notified_message(state: dict[str, set[str]], chat_id: str, message: dict[str, Any]) -> None:
-    state.setdefault(chat_id, set()).add(_message_processing_key(message))
-    _save_manager_telegram_notified_message_keys(state)
+    runtime_state.mark_notified_message_key(
+        get_runtime_store(),
+        MANAGER_TELEGRAM_NOTIFIED_STATE_KEY,
+        state,
+        chat_id,
+        _message_processing_key(message),
+    )
 
 
 def _message_processing_key(message: dict[str, Any]) -> str:
-    message_id = message.get("id") or message.get("message_id")
-    if message_id:
-        return str(message_id)
-    created_at = safe_int(message.get("created") or message.get("created_at")) or 0
-    text = message_text(message) or ""
-    return f"{created_at}:{text}"
+    return autoreply_logic.message_processing_key(message)
 
 
 def _has_outbound_after_message(messages_response: dict[str, Any], pending_item: dict[str, Any] | None) -> bool:
-    if not pending_item:
-        return False
-    pending_message_id = str(pending_item.get("message_id") or "")
-    messages = [message for message in order_messages(list(messages_response.get("messages", []))) if message.get("type") != "system"]
-    if not pending_message_id:
-        return bool(messages and messages[-1].get("direction") == "out")
-
-    found_pending = False
-    for message in messages:
-        if found_pending and message.get("direction") == "out":
-            return True
-        if str(message.get("id") or "") == pending_message_id:
-            found_pending = True
-    return False
+    return autoreply_logic.has_outbound_after_message(messages_response, pending_item)
 
 
 def _estimate_reply_seconds(message: dict[str, Any]) -> int:
-    text = ((message.get("content") or {}).get("text") or "").strip()
-    return max(8, min(30, 10 + len(text) // 80 * 3))
+    return autoreply_logic.estimate_reply_seconds(message)
 
 
 def _elapsed_ms(started_at: float, finished_at: float | None = None) -> int:
-    return round(((finished_at or time.time()) - started_at) * 1000)
+    return autoreply_logic.elapsed_ms(started_at, finished_at)
 
 
 def _error_detail(exc: Exception) -> object:

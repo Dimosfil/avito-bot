@@ -21,7 +21,8 @@
   "intent_patterns": {
     "price_question": "(price|cost|budget|quote|how much|сколько|цена|стоимост|бюджет|кп|коммерческ)",
     "timing_question": "(timing|deadline|urgent|how long|срок|когда|срочн|быстро|долго)",
-    "detail_signal": "(telegram|телеграм|avito|авито|crm|срм|сайт|bot|бот|lead|заяв|notify|notification|уведом|таблиц|интеграц|фильтр|бренд|регион|цена|состояни|раз в сутки|без огранич|заказ|оплат|достав|менеджер)"
+    "detail_signal": "(telegram|телеграм|avito|авито|crm|срм|сайт|bot|бот|lead|заяв|notify|notification|уведом|таблиц|интеграц|фильтр|бренд|регион|цена|состояни|раз в сутки|без огранич|заказ|оплат|достав|менеджер)",
+    "buying_intent": "(хочу\\s+(купить|заказать|оформить|сделку|кп)|готов[аы]?\\s+(купить|заказать|оформить)|\\b(беру|куплю|договорились|определил(?:ся|ись|ась)?)\\b|давайте\\s+(оформим|сделку|кп)|оформляйте|выставляйте\\s+сч[её]т|свяжите\\s+с\\s+менеджером|позовите\\s+менеджера|подготовк[аи]\\s+предложени[яе]|точн(ого|ый)\\s+расч[её]т)"
   },
   "handoff_phrases": [
     "хочу кп",
@@ -66,10 +67,16 @@
   "post_processing": {
     "greeting_pattern": "^\\s*(здравствуйте|добрый день|добрый вечер|доброе утро|привет)[!,.:\\-\\s]*",
     "seller_name_address_pattern": "^\\s*(Оксана|Oksana)\\s*[,!.:;—\\-\\s]+",
-    "client_name_passthrough": ["оксана", "oksana"]
+    "client_name_passthrough": [
+      "оксана",
+      "oksana"
+    ]
   },
   "dialogue_guidance": {
-    "manager_mention_terms": ["менеджер", "manager"],
+    "manager_mention_terms": [
+      "менеджер",
+      "manager"
+    ],
     "manager_mention_threshold": 2,
     "detail_signal_threshold": 3,
     "base_rules": [

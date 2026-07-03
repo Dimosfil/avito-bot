@@ -127,6 +127,17 @@ def test_bot_rules_can_load_handoff_phrase_from_json_without_python_change(tmp_p
     assert "готов обсудить договор" in loaded_rules.handoff_phrases
 
 
+def test_bot_rules_can_load_buying_intent_pattern_from_json_without_python_change(tmp_path) -> None:
+    data = json.loads(bot_rules.DEFAULT_RULES_PATH.read_text(encoding="utf-8"))
+    data["intent_patterns"]["buying_intent"] = "custom-buy-signal"
+    rules_path = tmp_path / "bot-rules.json"
+    rules_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+    loaded_rules = bot_rules.load_bot_rules(rules_path)
+
+    assert loaded_rules.buying_intent_re.search("client says custom-buy-signal")
+
+
 def test_admin_command_enables_admin_mode_prompt_for_llm() -> None:
     calls = []
 

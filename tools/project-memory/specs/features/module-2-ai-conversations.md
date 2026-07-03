@@ -158,6 +158,16 @@ First runnable slice:
   inbound message: accepted time, estimated reply seconds/time, sent time, and
   actual processing duration. The UI shows when the bot starts checking or
   thinking and replaces that with the fixed estimate/result after sending.
+- Current backend refactor boundary: `app/main.py` owns FastAPI routes and
+  high-level orchestration; `app/runtime_state.py` owns persisted runtime-state
+  helper operations; `app/autoreply_logic.py` owns pure auto-reply decision
+  helpers such as message keys, recent-read checks, pending/outbound checks, and
+  timing estimates; `app/manager_notifications.py` owns Telegram manager
+  message formatting and sending helpers.
+- Current static UI refactor boundary: `app/static/api.js` owns shared HTTP
+  helpers; `app/static/qualification.js` owns qualified-buying bucket helpers
+  and browser/server sync for sticky qualified chat IDs; `app/static/app.js`
+  still owns the page coordinator, rendering, layout state, and event wiring.
 - This slice is not yet the full Module 2 domain model or manager handoff
   workflow.
 
@@ -222,8 +232,9 @@ inside handlers or channel adapters.
 The current backend default rules resource is `app/rules/bot-rules.json`.
 `app/bot_rules.py` loads and validates that resource, compiles regex patterns,
 and exposes rule-application helpers to the assistant. The JSON owns handoff
-phrases, intent patterns, prompt rules, dialogue thresholds, and deterministic
-post-processing patterns. Deployments may point `AVITO_BOT_RULES_PATH` to
+phrases, intent patterns including backend buying-intent qualification, prompt
+rules, dialogue thresholds, and deterministic post-processing patterns.
+Deployments may point `AVITO_BOT_RULES_PATH` to
 another JSON file, and `AVITO_ADMIN_CODE` may override the default admin/debug
 activation code without changing Python source.
 
