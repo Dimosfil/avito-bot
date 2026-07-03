@@ -17,6 +17,12 @@ For `gi restart`, `gi reboot`, `ги рестарт`, `ги ребут`, and equ
 read `patterns/AGENTS_RUNTIME/09-project-operation-commands.md` before any
 process inspection, stop, start, or success report.
 
+Before any `gi` command writes files, agents must verify that the active project
+root and target identity match the current request. If the request appears to
+target another product, repository, or absolute path outside the current root,
+stop and warn the user unless the current message explicitly authorizes that
+exact external path and action.
+
 ## Команды Для Чата С Агентом
 
 Префикс `gi` — короткая команда для локального instruction kit. Не
@@ -978,7 +984,10 @@ code, duplicated business logic, oversized modules, dependency direction, typed
 or validated contracts, tests, and project-memory updates.
 
 The agent works in small verifiable batches and preserves user-visible behavior
-unless the user explicitly changes it. It asks before destructive operations,
+unless the user explicitly changes it. It separates structural refactor work
+from development work such as new behavior, validation, observability,
+integrations, runtime flows, or new public contracts; verification and service
+operations stay labeled separately too. It asks before destructive operations,
 data migrations, public API or storage contract changes, dependency
 replacements, broad formatting-only churn, or private/external paths. After
 meaningful batches, it runs documented checks for affected areas, updates
