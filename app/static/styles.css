@@ -1807,7 +1807,6 @@ input {
 
   .view-tab,
   .toolbar button,
-  .auto-toggle,
   .panel-actions button {
     flex: 1 1 auto;
   }

@@ -67,8 +67,6 @@ bot_activity: dict[str, Any] = {
 
 async def _restore_bot_worker_state() -> None:
     global bot_worker_enabled, bot_worker_task
-    if not _load_autoreply_enabled():
-        return
     settings = get_settings()
     if not settings.avito_live_sync_enabled:
         _save_autoreply_enabled(False)
@@ -85,6 +83,7 @@ async def _restore_bot_worker_state() -> None:
             "last_error": None,
         }
     )
+    _save_autoreply_enabled(True)
     if bot_worker_task is None or bot_worker_task.done():
         bot_worker_task = asyncio.create_task(_bot_worker_loop())
 

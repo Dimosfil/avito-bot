@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi.testclient import TestClient
 import pytest
 import sqlite3
@@ -407,6 +409,21 @@ def test_autoreply_start_stop_persists_enabled_state(monkeypatch) -> None:
     assert stopped.status_code == 200
     assert stopped.json()["enabled"] is False
     assert main_module._load_autoreply_enabled() is False
+
+
+def test_autoreply_restore_enables_worker_by_default(monkeypatch) -> None:
+    async def fake_bot_worker_loop() -> None:
+        return None
+
+    monkeypatch.setenv("AVITO_CLIENT_ID", "client-id")
+    monkeypatch.setenv("AVITO_CLIENT_SECRET", "client-secret")
+    monkeypatch.setattr("app.main._bot_worker_loop", fake_bot_worker_loop)
+
+    asyncio.run(main_module._restore_bot_worker_state())
+
+    assert main_module.bot_worker_enabled is True
+    assert main_module.bot_activity["enabled"] is True
+    assert main_module._load_autoreply_enabled() is True
 
 
 def test_process_unread_sends_ai_reply(monkeypatch) -> None:

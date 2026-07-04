@@ -22,7 +22,6 @@ const draftPanel = document.querySelector("#draftPanel");
 const draftText = document.querySelector("#draftText");
 const unreadOnlyInput = document.querySelector("#unreadOnlyInput");
 const processUnreadButton = document.querySelector("#processUnreadButton");
-const autoProcessInput = document.querySelector("#autoProcessInput");
 const managerTakeoverButton = document.querySelector("#managerTakeoverButton");
 const automationLine = document.querySelector("#automationLine");
 const botActivity = document.querySelector("#botActivity");
@@ -96,7 +95,6 @@ chatTabButton.addEventListener("click", () => showView("chats"));
 statsTabButton.addEventListener("click", () => showView("stats"));
 logsTabButton.addEventListener("click", () => showView("logs"));
 processUnreadButton.addEventListener("click", () => processUnread({ show: true }));
-document.querySelector("#aiPingButton").addEventListener("click", pingAi);
 document.querySelector("#webhooksButton").addEventListener("click", loadWebhookEvents);
 document.querySelector("#sendForm").addEventListener("submit", sendMessage);
 chatList.addEventListener("click", handleChatListClick);
@@ -108,7 +106,6 @@ window.addEventListener("beforeunload", saveManagerPageState);
 readButton.addEventListener("click", markRead);
 draftButton.addEventListener("click", draftReply);
 useDraftButton.addEventListener("click", useDraft);
-autoProcessInput.addEventListener("change", syncServerAutoReply);
 managerTakeoverButton.addEventListener("click", syncChatBotControl);
 refreshStatsItemsButton.addEventListener("click", refreshStatsItems);
 loadStatsButton.addEventListener("click", loadItemStats);
@@ -129,7 +126,7 @@ async function initialize() {
       await loadChats({ refresh: false });
       await restoreActiveChat();
       refreshStatsItems();
-      await syncServerAutoReply();
+      await ensureServerAutoReplyEnabled();
       startPolling();
     } catch (error) {
       chatList.textContent = error.message;
@@ -507,18 +504,15 @@ function startPolling() {
   }, POLLING_INTERVAL_MS);
 }
 
-async function syncServerAutoReply() {
+async function ensureServerAutoReplyEnabled() {
   if (!ensureAvitoReady({ show: false })) {
-    autoProcessInput.checked = false;
     return;
   }
   if (!ensureAvitoLiveSync({ show: false })) {
-    autoProcessInput.checked = false;
-    setAutomationLine("Auto reply off: PostgreSQL cache mode");
+    setAutomationLine("Автоответчик недоступен: режим кэша");
     return;
   }
-  const endpoint = autoProcessInput.checked ? "/api/bot/autoreply/start" : "/api/bot/autoreply/stop";
-  const status = await api(endpoint, { method: "POST" });
+  const status = await api("/api/bot/autoreply/start", { method: "POST" });
   updateBotStatus(status);
 }
 
@@ -530,13 +524,13 @@ async function refreshBotStatus() {
 function updateBotStatus(status) {
   const state = status.task_state || "stopped";
   if (!status.enabled) {
-    setAutomationLine("Auto reply off");
+    setAutomationLine("Автоответчик выключен");
     if (!automationBusy) setBotActivity("Серверный автоответчик выключен");
     return;
   }
 
   if (state === "running") {
-    setAutomationLine("Auto reply: backend thinking");
+    setAutomationLine("Автоответчик проверяет входящие");
     setBotActivity("Серверный автоответчик проверяет входящие и отвечает независимо от вкладки браузера.", "active");
     return;
   }
@@ -545,12 +539,12 @@ function updateBotStatus(status) {
   if (result) {
     const sent = result.sent_count || 0;
     const handoff = result.handoff_count || 0;
-    setAutomationLine(sent || handoff ? `Auto reply: sent ${sent}, handoff ${handoff}` : "Auto reply: waiting");
+    setAutomationLine(sent || handoff ? `Автоответчик: отправлено ${sent}, передано ${handoff}` : "Автоответчик ждет входящие");
     updateBotActivityFromProcessing(result);
     return;
   }
 
-  setAutomationLine("Auto reply: backend on");
+  setAutomationLine("Автоответчик включен");
   setBotActivity("Серверный автоответчик включен и ждёт входящих сообщений");
 }
 
@@ -606,12 +600,11 @@ function updateBotActivityFromProcessing(data) {
 
 function updateAvitoControls(ready) {
   chatsButton.disabled = !ready;
-  [tokenButton, accountButton, processUnreadButton, autoProcessInput].forEach((control) => {
+  [tokenButton, accountButton, processUnreadButton].forEach((control) => {
     control.disabled = !ready || !avitoLiveSyncEnabled;
   });
 
   if (ready && !avitoLiveSyncEnabled) {
-    autoProcessInput.checked = false;
     setAutomationLine("PostgreSQL cache mode");
     setBotActivity("Live Avito sync is disabled; chats are loaded from PostgreSQL.");
     return;
@@ -619,7 +612,6 @@ function updateAvitoControls(ready) {
 
   if (ready) return;
 
-  autoProcessInput.checked = false;
   activeChatId = null;
   activeChat = null;
   activeMessagesResponse = null;
@@ -637,7 +629,7 @@ function updateAvitoControls(ready) {
   hideDraft();
   chatList.textContent = "Добавьте AVITO_CLIENT_ID и AVITO_CLIENT_SECRET в .env или переменные окружения, затем перезапустите release.";
   messageList.textContent = "Чаты Avito недоступны без настроенных ключей.";
-  setAutomationLine("Auto reply off: Avito credentials required");
+  setAutomationLine("Автоответчик недоступен: нужны ключи Avito");
   setBotActivity("Авито-бот не запущен: нужны AVITO_CLIENT_ID и AVITO_CLIENT_SECRET.", "error");
 }
 
@@ -2221,9 +2213,6 @@ function renderMessages(messages, { scrollToLatest = false } = {}) {
     item.append(meta, content);
     messageList.append(item);
 
-    if (index === orderedMessages.length - 1) {
-      appendTimelineEdge("Последнее сообщение");
-    }
   });
   if (scrollToLatest) scrollMessageListToBottom();
 }
