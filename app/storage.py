@@ -12,18 +12,13 @@ from pathlib import Path
 from typing import Any, Iterator
 from urllib.parse import urlparse
 
+from app import storage_queries as sql
 from app.avito_payload import author_role, chat_item_context, chat_item_key, message_text, safe_int
 from app.config import Settings
+from app.storage_queries import APPLICATION_TABLES
 
 
 SCHEMA_VERSION = "1"
-APPLICATION_TABLES = (
-    "app_meta",
-    "runtime_state",
-    "conversations",
-    "messages",
-    "manager_actions",
-)
 
 
 @dataclass(frozen=True)
@@ -72,57 +67,8 @@ class RuntimeStore:
         assert self.sqlite_path is not None
         self.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(self.sqlite_path) as con:
-            con.executescript(
-                """
-                PRAGMA journal_mode = WAL;
-                CREATE TABLE IF NOT EXISTS app_meta (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS runtime_state (
-                    key TEXT PRIMARY KEY,
-                    value_json TEXT NOT NULL,
-                    updated_at INTEGER NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS conversations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    channel TEXT NOT NULL,
-                    external_chat_id TEXT NOT NULL,
-                    external_item_key TEXT,
-                    title TEXT,
-                    payload_json TEXT NOT NULL,
-                    updated_at INTEGER NOT NULL,
-                    UNIQUE(channel, external_chat_id)
-                );
-                CREATE TABLE IF NOT EXISTS messages (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    channel TEXT NOT NULL,
-                    external_chat_id TEXT NOT NULL,
-                    message_key TEXT NOT NULL,
-                    external_message_id TEXT,
-                    direction TEXT,
-                    message_type TEXT,
-                    author_role TEXT,
-                    created_at INTEGER,
-                    text TEXT,
-                    payload_json TEXT NOT NULL,
-                    received_at INTEGER NOT NULL,
-                    UNIQUE(channel, external_chat_id, message_key)
-                );
-                CREATE TABLE IF NOT EXISTS manager_actions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    channel TEXT NOT NULL,
-                    external_chat_id TEXT NOT NULL,
-                    action_type TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    created_at INTEGER NOT NULL
-                );
-                """
-            )
-            con.execute(
-                "INSERT OR REPLACE INTO app_meta(key, value) VALUES('schema_version', ?)",
-                (SCHEMA_VERSION,),
-            )
+            con.executescript(sql.SQLITE_SCHEMA)
+            con.execute(sql.SQLITE_SET_SCHEMA_VERSION, (SCHEMA_VERSION,))
         self._schema_ready = True
 
     def get_state(self, key: str) -> Any | None:
@@ -130,12 +76,12 @@ class RuntimeStore:
         if self.backend == "postgres":
             with self._postgres_connection() as con:
                 with con.cursor() as cur:
-                    cur.execute("SELECT value_json FROM runtime_state WHERE key = %s", (key,))
+                    cur.execute(sql.POSTGRES_GET_STATE, (key,))
                     row = cur.fetchone()
             return json.loads(row[0]) if row else None
         assert self.sqlite_path is not None
         with sqlite3.connect(self.sqlite_path) as con:
-            row = con.execute("SELECT value_json FROM runtime_state WHERE key = ?", (key,)).fetchone()
+            row = con.execute(sql.SQLITE_GET_STATE, (key,)).fetchone()
         return json.loads(row[0]) if row else None
 
     def set_state(self, key: str, value: Any) -> None:
@@ -145,27 +91,11 @@ class RuntimeStore:
         if self.backend == "postgres":
             with self._postgres_connection() as con:
                 with con.cursor() as cur:
-                    cur.execute(
-                        """
-                        INSERT INTO runtime_state(key, value_json, updated_at)
-                        VALUES (%s, %s, %s)
-                        ON CONFLICT (key) DO UPDATE
-                        SET value_json = EXCLUDED.value_json, updated_at = EXCLUDED.updated_at
-                        """,
-                        (key, payload, updated_at),
-                    )
+                    cur.execute(sql.POSTGRES_SET_STATE, (key, payload, updated_at))
             return
         assert self.sqlite_path is not None
         with sqlite3.connect(self.sqlite_path) as con:
-            con.execute(
-                """
-                INSERT INTO runtime_state(key, value_json, updated_at)
-                VALUES (?, ?, ?)
-                ON CONFLICT(key) DO UPDATE
-                SET value_json = excluded.value_json, updated_at = excluded.updated_at
-                """,
-                (key, payload, updated_at),
-            )
+            con.execute(sql.SQLITE_SET_STATE, (key, payload, updated_at))
 
     def upsert_avito_chats(self, chats: list[dict[str, Any]]) -> None:
         self.ensure_schema()
@@ -176,33 +106,11 @@ class RuntimeStore:
             with self._postgres_connection() as con:
                 with con.cursor() as cur:
                     for row in rows:
-                        cur.execute(
-                            """
-                            INSERT INTO conversations(channel, external_chat_id, external_item_key, title, payload_json, updated_at)
-                            VALUES (%s, %s, %s, %s, %s, %s)
-                            ON CONFLICT (channel, external_chat_id) DO UPDATE
-                            SET external_item_key = EXCLUDED.external_item_key,
-                                title = EXCLUDED.title,
-                                payload_json = EXCLUDED.payload_json,
-                                updated_at = EXCLUDED.updated_at
-                            """,
-                            row,
-                        )
+                        cur.execute(sql.POSTGRES_UPSERT_CONVERSATION, row)
             return
         assert self.sqlite_path is not None
         with sqlite3.connect(self.sqlite_path) as con:
-            con.executemany(
-                """
-                INSERT INTO conversations(channel, external_chat_id, external_item_key, title, payload_json, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(channel, external_chat_id) DO UPDATE
-                SET external_item_key = excluded.external_item_key,
-                    title = excluded.title,
-                    payload_json = excluded.payload_json,
-                    updated_at = excluded.updated_at
-                """,
-                rows,
-            )
+            con.executemany(sql.SQLITE_UPSERT_CONVERSATION, rows)
 
     def upsert_avito_messages(self, chat_id: str, messages: list[dict[str, Any]]) -> None:
         self.ensure_schema()
@@ -213,47 +121,11 @@ class RuntimeStore:
             with self._postgres_connection() as con:
                 with con.cursor() as cur:
                     for row in rows:
-                        cur.execute(
-                            """
-                            INSERT INTO messages(
-                                channel, external_chat_id, message_key, external_message_id, direction,
-                                message_type, author_role, created_at, text, payload_json, received_at
-                            )
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                            ON CONFLICT (channel, external_chat_id, message_key) DO UPDATE
-                            SET external_message_id = EXCLUDED.external_message_id,
-                                direction = EXCLUDED.direction,
-                                message_type = EXCLUDED.message_type,
-                                author_role = EXCLUDED.author_role,
-                                created_at = EXCLUDED.created_at,
-                                text = EXCLUDED.text,
-                                payload_json = EXCLUDED.payload_json,
-                                received_at = EXCLUDED.received_at
-                            """,
-                            row,
-                        )
+                        cur.execute(sql.POSTGRES_UPSERT_MESSAGE, row)
             return
         assert self.sqlite_path is not None
         with sqlite3.connect(self.sqlite_path) as con:
-            con.executemany(
-                """
-                INSERT INTO messages(
-                    channel, external_chat_id, message_key, external_message_id, direction,
-                    message_type, author_role, created_at, text, payload_json, received_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(channel, external_chat_id, message_key) DO UPDATE
-                SET external_message_id = excluded.external_message_id,
-                    direction = excluded.direction,
-                    message_type = excluded.message_type,
-                    author_role = excluded.author_role,
-                    created_at = excluded.created_at,
-                    text = excluded.text,
-                    payload_json = excluded.payload_json,
-                    received_at = excluded.received_at
-                """,
-                rows,
-            )
+            con.executemany(sql.SQLITE_UPSERT_MESSAGE, rows)
 
     def list_avito_chats(self, *, limit: int = 20, offset: int = 0, unread_only: bool = False) -> list[dict[str, Any]]:
         self.ensure_schema()
@@ -263,30 +135,12 @@ class RuntimeStore:
         if self.backend == "postgres":
             with self._postgres_connection() as con:
                 with con.cursor() as cur:
-                    cur.execute(
-                        """
-                        SELECT external_chat_id, payload_json
-                        FROM conversations
-                        WHERE channel = %s
-                        ORDER BY updated_at DESC, id DESC
-                        LIMIT %s OFFSET %s
-                        """,
-                        ("avito", limit, offset),
-                    )
+                    cur.execute(sql.POSTGRES_LIST_CHATS, ("avito", limit, offset))
                     rows = cur.fetchall()
         else:
             assert self.sqlite_path is not None
             with sqlite3.connect(self.sqlite_path) as con:
-                rows = con.execute(
-                    """
-                    SELECT external_chat_id, payload_json
-                    FROM conversations
-                    WHERE channel = ?
-                    ORDER BY updated_at DESC, id DESC
-                    LIMIT ? OFFSET ?
-                    """,
-                    ("avito", limit, offset),
-                ).fetchall()
+                rows = con.execute(sql.SQLITE_LIST_CHATS, ("avito", limit, offset)).fetchall()
         chats = [_payload_with_id(payload_json, chat_id) for chat_id, payload_json in rows]
         if unread_only:
             chats = [chat for chat in chats if _chat_has_unread(chat)]
@@ -297,26 +151,12 @@ class RuntimeStore:
         if self.backend == "postgres":
             with self._postgres_connection() as con:
                 with con.cursor() as cur:
-                    cur.execute(
-                        """
-                        SELECT payload_json
-                        FROM conversations
-                        WHERE channel = %s AND external_chat_id = %s
-                        """,
-                        ("avito", chat_id),
-                    )
+                    cur.execute(sql.POSTGRES_GET_CHAT, ("avito", chat_id))
                     row = cur.fetchone()
         else:
             assert self.sqlite_path is not None
             with sqlite3.connect(self.sqlite_path) as con:
-                row = con.execute(
-                    """
-                    SELECT payload_json
-                    FROM conversations
-                    WHERE channel = ? AND external_chat_id = ?
-                    """,
-                    ("avito", chat_id),
-                ).fetchone()
+                row = con.execute(sql.SQLITE_GET_CHAT, ("avito", chat_id)).fetchone()
         return _payload_with_id(row[0], chat_id) if row else None
 
     def list_avito_messages(self, chat_id: str, *, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
@@ -326,30 +166,12 @@ class RuntimeStore:
         if self.backend == "postgres":
             with self._postgres_connection() as con:
                 with con.cursor() as cur:
-                    cur.execute(
-                        """
-                        SELECT payload_json
-                        FROM messages
-                        WHERE channel = %s AND external_chat_id = %s
-                        ORDER BY COALESCE(created_at, received_at), id
-                        LIMIT %s OFFSET %s
-                        """,
-                        ("avito", chat_id, limit, offset),
-                    )
+                    cur.execute(sql.POSTGRES_LIST_MESSAGES, ("avito", chat_id, limit, offset))
                     rows = cur.fetchall()
         else:
             assert self.sqlite_path is not None
             with sqlite3.connect(self.sqlite_path) as con:
-                rows = con.execute(
-                    """
-                    SELECT payload_json
-                    FROM messages
-                    WHERE channel = ? AND external_chat_id = ?
-                    ORDER BY COALESCE(created_at, received_at), id
-                    LIMIT ? OFFSET ?
-                    """,
-                    ("avito", chat_id, limit, offset),
-                ).fetchall()
+                rows = con.execute(sql.SQLITE_LIST_MESSAGES, ("avito", chat_id, limit, offset)).fetchall()
         return [_json_payload(row[0]) for row in rows]
 
     def record_manager_action(self, chat_id: str, action_type: str, payload: dict[str, Any]) -> None:
@@ -358,23 +180,11 @@ class RuntimeStore:
         if self.backend == "postgres":
             with self._postgres_connection() as con:
                 with con.cursor() as cur:
-                    cur.execute(
-                        """
-                        INSERT INTO manager_actions(channel, external_chat_id, action_type, payload_json, created_at)
-                        VALUES (%s, %s, %s, %s, %s)
-                        """,
-                        row,
-                    )
+                    cur.execute(sql.POSTGRES_INSERT_MANAGER_ACTION, row)
             return
         assert self.sqlite_path is not None
         with sqlite3.connect(self.sqlite_path) as con:
-            con.execute(
-                """
-                INSERT INTO manager_actions(channel, external_chat_id, action_type, payload_json, created_at)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                row,
-            )
+            con.execute(sql.SQLITE_INSERT_MANAGER_ACTION, row)
 
     def create_backup(self, *, keep: int = 14) -> BackupResult:
         self.ensure_schema()
@@ -416,7 +226,7 @@ class RuntimeStore:
             with self._postgres_connection() as con:
                 with con.cursor() as cur:
                     for table in APPLICATION_TABLES:
-                        cur.execute(f"SELECT * FROM {table} ORDER BY 1")
+                        cur.execute(sql.export_table_query(table))
                         columns = [column.name for column in cur.description]
                         export["tables"][table] = [dict(zip(columns, row)) for row in cur.fetchall()]
             return export
@@ -424,7 +234,7 @@ class RuntimeStore:
         with sqlite3.connect(self.sqlite_path) as con:
             con.row_factory = sqlite3.Row
             for table in APPLICATION_TABLES:
-                export["tables"][table] = [dict(row) for row in con.execute(f"SELECT * FROM {table} ORDER BY 1")]
+                export["tables"][table] = [dict(row) for row in con.execute(sql.export_table_query(table))]
         return export
 
     def import_data(self, export: dict[str, Any]) -> dict[str, int]:
@@ -484,15 +294,9 @@ class RuntimeStore:
     def _ensure_postgres_schema(self) -> None:
         with self._postgres_connection() as con:
             with con.cursor() as cur:
-                for statement in POSTGRES_SCHEMA:
+                for statement in sql.POSTGRES_SCHEMA:
                     cur.execute(statement)
-                cur.execute(
-                    """
-                    INSERT INTO app_meta(key, value) VALUES('schema_version', %s)
-                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-                    """,
-                    (SCHEMA_VERSION,),
-                )
+                cur.execute(sql.POSTGRES_SET_SCHEMA_VERSION, (SCHEMA_VERSION,))
 
     @contextmanager
     def _postgres_connection(self) -> Iterator[Any]:
@@ -522,36 +326,12 @@ class RuntimeStore:
         with self._postgres_connection() as con:
             with con.cursor() as cur:
                 for row in _rows(tables, "app_meta"):
-                    cur.execute(
-                        """
-                        INSERT INTO app_meta(key, value) VALUES (%s, %s)
-                        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-                        """,
-                        (row["key"], row["value"]),
-                    )
+                    cur.execute(sql.POSTGRES_IMPORT_APP_META, (row["key"], row["value"]))
                 for row in _rows(tables, "runtime_state"):
-                    cur.execute(
-                        """
-                        INSERT INTO runtime_state(key, value_json, updated_at)
-                        VALUES (%s, %s, %s)
-                        ON CONFLICT (key) DO UPDATE
-                        SET value_json = EXCLUDED.value_json, updated_at = EXCLUDED.updated_at
-                        """,
-                        (row["key"], row["value_json"], row["updated_at"]),
-                    )
+                    cur.execute(sql.POSTGRES_IMPORT_STATE, (row["key"], row["value_json"], row["updated_at"]))
                 for row in _rows(tables, "conversations"):
                     cur.execute(
-                        """
-                        INSERT INTO conversations(
-                            id, channel, external_chat_id, external_item_key, title, payload_json, updated_at
-                        )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (channel, external_chat_id) DO UPDATE
-                        SET external_item_key = EXCLUDED.external_item_key,
-                            title = EXCLUDED.title,
-                            payload_json = EXCLUDED.payload_json,
-                            updated_at = EXCLUDED.updated_at
-                        """,
+                        sql.POSTGRES_IMPORT_CONVERSATION,
                         (
                             row["id"],
                             row["channel"],
@@ -564,22 +344,7 @@ class RuntimeStore:
                     )
                 for row in _rows(tables, "messages"):
                     cur.execute(
-                        """
-                        INSERT INTO messages(
-                            id, channel, external_chat_id, message_key, external_message_id, direction,
-                            message_type, author_role, created_at, text, payload_json, received_at
-                        )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (channel, external_chat_id, message_key) DO UPDATE
-                        SET external_message_id = EXCLUDED.external_message_id,
-                            direction = EXCLUDED.direction,
-                            message_type = EXCLUDED.message_type,
-                            author_role = EXCLUDED.author_role,
-                            created_at = EXCLUDED.created_at,
-                            text = EXCLUDED.text,
-                            payload_json = EXCLUDED.payload_json,
-                            received_at = EXCLUDED.received_at
-                        """,
+                        sql.POSTGRES_IMPORT_MESSAGE,
                         (
                             row["id"],
                             row["channel"],
@@ -597,16 +362,7 @@ class RuntimeStore:
                     )
                 for row in _rows(tables, "manager_actions"):
                     cur.execute(
-                        """
-                        INSERT INTO manager_actions(id, channel, external_chat_id, action_type, payload_json, created_at)
-                        VALUES (%s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (id) DO UPDATE
-                        SET channel = EXCLUDED.channel,
-                            external_chat_id = EXCLUDED.external_chat_id,
-                            action_type = EXCLUDED.action_type,
-                            payload_json = EXCLUDED.payload_json,
-                            created_at = EXCLUDED.created_at
-                        """,
+                        sql.POSTGRES_IMPORT_MANAGER_ACTION,
                         (
                             row["id"],
                             row["channel"],
@@ -626,34 +382,12 @@ class RuntimeStore:
         assert self.sqlite_path is not None
         with sqlite3.connect(self.sqlite_path) as con:
             for row in _rows(tables, "app_meta"):
-                con.execute(
-                    """
-                    INSERT INTO app_meta(key, value) VALUES (?, ?)
-                    ON CONFLICT(key) DO UPDATE SET value = excluded.value
-                    """,
-                    (row["key"], row["value"]),
-                )
+                con.execute(sql.SQLITE_IMPORT_APP_META, (row["key"], row["value"]))
             for row in _rows(tables, "runtime_state"):
-                con.execute(
-                    """
-                    INSERT INTO runtime_state(key, value_json, updated_at)
-                    VALUES (?, ?, ?)
-                    ON CONFLICT(key) DO UPDATE
-                    SET value_json = excluded.value_json, updated_at = excluded.updated_at
-                    """,
-                    (row["key"], row["value_json"], row["updated_at"]),
-                )
+                con.execute(sql.SQLITE_IMPORT_STATE, (row["key"], row["value_json"], row["updated_at"]))
             for row in _rows(tables, "conversations"):
                 con.execute(
-                    """
-                    INSERT INTO conversations(id, channel, external_chat_id, external_item_key, title, payload_json, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(channel, external_chat_id) DO UPDATE
-                    SET external_item_key = excluded.external_item_key,
-                        title = excluded.title,
-                        payload_json = excluded.payload_json,
-                        updated_at = excluded.updated_at
-                    """,
+                    sql.SQLITE_IMPORT_CONVERSATION,
                     (
                         row["id"],
                         row["channel"],
@@ -666,22 +400,7 @@ class RuntimeStore:
                 )
             for row in _rows(tables, "messages"):
                 con.execute(
-                    """
-                    INSERT INTO messages(
-                        id, channel, external_chat_id, message_key, external_message_id, direction,
-                        message_type, author_role, created_at, text, payload_json, received_at
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(channel, external_chat_id, message_key) DO UPDATE
-                    SET external_message_id = excluded.external_message_id,
-                        direction = excluded.direction,
-                        message_type = excluded.message_type,
-                        author_role = excluded.author_role,
-                        created_at = excluded.created_at,
-                        text = excluded.text,
-                        payload_json = excluded.payload_json,
-                        received_at = excluded.received_at
-                    """,
+                    sql.SQLITE_IMPORT_MESSAGE,
                     (
                         row["id"],
                         row["channel"],
@@ -699,16 +418,7 @@ class RuntimeStore:
                 )
             for row in _rows(tables, "manager_actions"):
                 con.execute(
-                    """
-                    INSERT INTO manager_actions(id, channel, external_chat_id, action_type, payload_json, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE
-                    SET channel = excluded.channel,
-                        external_chat_id = excluded.external_chat_id,
-                        action_type = excluded.action_type,
-                        payload_json = excluded.payload_json,
-                        created_at = excluded.created_at
-                    """,
+                    sql.SQLITE_IMPORT_MANAGER_ACTION,
                     (
                         row["id"],
                         row["channel"],
@@ -719,62 +429,6 @@ class RuntimeStore:
                     ),
                 )
         return counts
-
-
-POSTGRES_SCHEMA = [
-    """
-    CREATE TABLE IF NOT EXISTS app_meta (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS runtime_state (
-        key TEXT PRIMARY KEY,
-        value_json TEXT NOT NULL,
-        updated_at BIGINT NOT NULL
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS conversations (
-        id BIGSERIAL PRIMARY KEY,
-        channel TEXT NOT NULL,
-        external_chat_id TEXT NOT NULL,
-        external_item_key TEXT,
-        title TEXT,
-        payload_json TEXT NOT NULL,
-        updated_at BIGINT NOT NULL,
-        UNIQUE(channel, external_chat_id)
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS messages (
-        id BIGSERIAL PRIMARY KEY,
-        channel TEXT NOT NULL,
-        external_chat_id TEXT NOT NULL,
-        message_key TEXT NOT NULL,
-        external_message_id TEXT,
-        direction TEXT,
-        message_type TEXT,
-        author_role TEXT,
-        created_at BIGINT,
-        text TEXT,
-        payload_json TEXT NOT NULL,
-        received_at BIGINT NOT NULL,
-        UNIQUE(channel, external_chat_id, message_key)
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS manager_actions (
-        id BIGSERIAL PRIMARY KEY,
-        channel TEXT NOT NULL,
-        external_chat_id TEXT NOT NULL,
-        action_type TEXT NOT NULL,
-        payload_json TEXT NOT NULL,
-        created_at BIGINT NOT NULL
-    )
-    """,
-]
 
 
 def resolve_sqlite_path(settings: Settings, runtime_dir: Path) -> Path:
@@ -885,13 +539,4 @@ def _table_counts(tables: dict[str, Any]) -> dict[str, int]:
 
 
 def _sync_postgres_sequence(cur: Any, table: str, column: str) -> None:
-    cur.execute(
-        """
-        SELECT setval(
-            pg_get_serial_sequence(%s, %s),
-            COALESCE((SELECT MAX(id) FROM """ + table + """), 1),
-            EXISTS(SELECT 1 FROM """ + table + """)
-        )
-        """,
-        (table, column),
-    )
+    cur.execute(sql.postgres_sync_sequence_query(table), (table, column))

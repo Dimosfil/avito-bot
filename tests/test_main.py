@@ -32,6 +32,7 @@ def clear_runtime_state(tmp_path, monkeypatch):
     main_module.bot_worker_enabled = False
     main_module.bot_worker_task = None
     main_module.backup_worker_task = None
+    main_module.admin_logs.clear()
     main_module.bot_activity.update({"enabled": False, "running": False, "last_result": None, "last_error": None})
     yield
     manager_takeover_chat_ids.clear()
@@ -44,6 +45,7 @@ def clear_runtime_state(tmp_path, monkeypatch):
     main_module.backup_worker_task = None
     main_module.runtime_store = None
     main_module.runtime_store_key = None
+    main_module.admin_logs.clear()
     main_module.bot_activity.update({"enabled": False, "running": False, "last_result": None, "last_error": None})
 
 

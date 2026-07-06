@@ -76,6 +76,21 @@ def test_sqlite_store_lists_cached_avito_chats_and_messages(tmp_path) -> None:
     assert messages[0]["id"] == "message-1"
 
 
+def test_sqlite_store_lists_latest_cached_avito_messages(tmp_path) -> None:
+    store = RuntimeStore(database_url=None, sqlite_path=tmp_path / "state.sqlite3", backup_dir=tmp_path / "backups")
+    store.upsert_avito_messages(
+        "chat-1",
+        [
+            {"id": f"message-{index}", "created": index, "direction": "in", "type": "text", "content": {"text": str(index)}}
+            for index in range(1, 6)
+        ],
+    )
+
+    messages = store.list_avito_messages("chat-1", limit=3)
+
+    assert [message["id"] for message in messages] == ["message-3", "message-4", "message-5"]
+
+
 def test_shared_dir_defaults_for_sqlite_and_backups(tmp_path) -> None:
     settings = Settings(
         avito_client_id=None,

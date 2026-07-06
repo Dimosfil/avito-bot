@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections import deque
 from contextlib import asynccontextmanager, suppress
 from datetime import date
 from pathlib import Path
@@ -16,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from app.ai_client import FallbackAIClient
 from app import autoreply_logic
+from app.admin_logging import AdminLogBuffer, safe_log_detail
 from app.assistant import SalesAssistant, order_messages
 from app.avito_payload import chat_item_key, message_text, safe_int
 from app.avito_client import AvitoClient, AvitoConfigError
@@ -52,8 +52,7 @@ bot_worker_enabled = False
 bot_worker_interval_seconds = 5
 runtime_store: RuntimeStore | None = None
 runtime_store_key: tuple[str, str, str] | None = None
-admin_log_sequence = 0
-admin_logs: deque[dict[str, Any]] = deque(maxlen=300)
+admin_logs = AdminLogBuffer(maxlen=300)
 bot_activity: dict[str, Any] = {
     "enabled": False,
     "running": False,
@@ -174,9 +173,7 @@ async def storage_status() -> dict[str, object]:
 
 @app.get("/api/admin/logs")
 async def admin_logs_endpoint(limit: int = 100) -> dict[str, Any]:
-    limit = max(1, min(limit, 300))
-    records = list(admin_logs)[-limit:]
-    return {"logs": records, "count": len(records), "max_count": admin_logs.maxlen}
+    return admin_logs.list(limit=limit)
 
 
 @app.post("/api/storage/backup")
@@ -955,7 +952,7 @@ def _to_http_error(exc: Exception) -> HTTPException:
         _record_admin_log(
             "error",
             "avito_http_status_error",
-            {"status_code": exc.response.status_code, "detail": _safe_log_detail(detail)},
+            {"status_code": exc.response.status_code, "detail": safe_log_detail(detail)},
         )
         return HTTPException(status_code=exc.response.status_code, detail=detail)
     if isinstance(exc, httpx.RequestError):
@@ -1180,33 +1177,4 @@ def _error_detail(exc: Exception) -> object:
 
 
 def _record_admin_log(level: str, event: str, detail: Any | None = None) -> None:
-    global admin_log_sequence
-    admin_log_sequence += 1
-    admin_logs.append(
-        {
-            "id": admin_log_sequence,
-            "created_at": time.time(),
-            "level": level,
-            "event": event,
-            "detail": _safe_log_detail(detail),
-        }
-    )
-
-
-def _safe_log_detail(detail: Any | None) -> Any:
-    if detail is None:
-        return None
-    if isinstance(detail, dict):
-        sanitized: dict[str, Any] = {}
-        for key, value in detail.items():
-            key_text = str(key)
-            if any(secret_word in key_text.lower() for secret_word in ("token", "secret", "password", "key")):
-                sanitized[key_text] = "<redacted>"
-            else:
-                sanitized[key_text] = _safe_log_detail(value)
-        return sanitized
-    if isinstance(detail, list):
-        return [_safe_log_detail(item) for item in detail[:20]]
-    if isinstance(detail, (str, int, float, bool)):
-        return detail
-    return str(detail)
+    admin_logs.record(level, event, detail)
