@@ -17,6 +17,12 @@ The first production channel target is Avito. Until real Avito Messenger API
 access is confirmed, development must use a local/test Avito adapter with the
 same normalized conversation contract.
 
+User-facing business flow with visual diagrams:
+
+```text
+docs/business-flow.md
+```
+
 ## Run Locally
 
 Install dependencies:
@@ -178,10 +184,13 @@ be protected by the hoster's managed PostgreSQL retention.
 
 ## Runtime Diagnostics
 
-The app keeps recent sanitized runtime events in `/api/admin/logs` and can
-forward the same events through the sibling `ai_logger` package. Configure
-`AI_LOGGER_JSONL_PATH` for local JSON Lines output or `AI_LOGGER_SERVER_URL` for
-the standalone `ai_logger` ingest server. Optional settings include
+The app keeps recent sanitized runtime events in `/api/admin/logs`. When the
+external `ai_logger` package is installed, `app/admin_logging.py` can use it for
+log fan-out; otherwise the app uses a built-in compatible fallback so Docker
+images do not depend on a machine-local checkout. Configure
+`AI_LOGGER_JSONL_PATH` for local JSON Lines output. When the external package is
+available, `AI_LOGGER_SERVER_URL` can point to the standalone `ai_logger` ingest
+server. Optional settings include
 `AI_LOGGER_PROJECT`, `AI_LOGGER_SERVICE`, `AI_LOGGER_ENVIRONMENT`,
 `AI_LOGGER_SERVER_TOKEN`, and `AI_LOGGER_FALLBACK_JSONL_PATH`.
 

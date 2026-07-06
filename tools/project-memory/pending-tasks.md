@@ -73,3 +73,32 @@ Verification:
 - [ ] Trigger phrases move the conversation to handoff-required state.
 - [ ] Manual manager takeover prevents further AI replies.
 - [ ] Manager can see message history with sender roles.
+# Refactor Batch: Reply Strategy Boundary
+
+Status: completed in the first scoped batch. Follow-up refactors should extract
+raw intake and normalization modules from the current Avito polling flow.
+
+Goal: start the `gi refactor` modularization by separating reply selection from
+Avito message intake and delivery while preserving current behavior.
+
+Planned changes:
+
+- Add a small backend reply-strategy module with explicit strategy names.
+- Use the strategy in unread Avito auto-processing before sending replies.
+- Preserve current AI and handoff behavior; do not change public API routes.
+- Record reply strategy in durable manager-action payloads where replies are
+  sent.
+- Add focused tests for strategy selection and existing auto-reply behavior.
+
+Risks/dependencies:
+
+- `app/main.py` still owns most orchestration after this batch.
+- Raw intake and normalization modules remain follow-up refactors.
+- Existing tests monkeypatch `SalesAssistant` and `AvitoClient`; keep those
+  seams stable.
+
+Verification:
+
+- `uv run pytest tests/test_reply_strategy.py tests/test_main.py`
+- `uv run python -m compileall app tests`
+- `git diff --check`

@@ -9,6 +9,9 @@ marketplaces, social platforms, messengers, and the organization's website. AI
 answers routine first questions until the client shows clear buying or deal
 intent, then the system alerts a manager and supports human takeover.
 
+The canonical platform-neutral business workflow is fixed in
+`tools/project-memory/specs/business-rules/main-business-algorithm.md`.
+
 ## Success Signal
 
 The first MVP is successful when a manager can observe a dialogue, see AI
@@ -158,12 +161,23 @@ First runnable slice:
   inbound message: accepted time, estimated reply seconds/time, sent time, and
   actual processing duration. The UI shows when the bot starts checking or
   thinking and replaces that with the fixed estimate/result after sending.
-- Current backend refactor boundary: `app/main.py` owns FastAPI routes and
-  high-level orchestration; `app/runtime_state.py` owns persisted runtime-state
-  helper operations; `app/autoreply_logic.py` owns pure auto-reply decision
-  helpers such as message keys, recent-read checks, pending/outbound checks, and
-  timing estimates; `app/manager_notifications.py` owns Telegram manager
-  message formatting and sending helpers.
+- Current backend refactor boundary: `app/main.py` is the FastAPI composition
+  root and compatibility facade for tests and existing private helpers. It
+  groups endpoint registration through router objects, but detailed logic is
+  split into modules: `app/schemas.py` owns API request/response Pydantic
+  schemas; `app/runtime_state.py` owns persisted runtime-state helper
+  operations; `app/runtime_services.py` owns runtime-store, backup, and legacy
+  state migration orchestration; `app/autoreply_logic.py` owns pure
+  auto-reply decision helpers such as message keys, recent-read checks,
+  pending/outbound checks, and timing estimates; `app/process_unread.py` owns
+  the Avito unread-processing use case; `app/autoreply_worker.py` owns the
+  backend auto-reply worker loop/lifecycle helpers; `app/avito_sync.py` owns
+  Avito chat/message cache persistence, qualified-buying sync, and bot-control
+  item tracking; `app/reply_strategy.py` owns reply-strategy selection names
+  and pure pre/post draft strategy decisions; `app/manager_notifications.py`
+  owns Telegram message formatting/sending; `app/manager_notification_service.py`
+  owns manager-notification orchestration; `app/ai_factory.py` owns AI client
+  construction; and `app/http_errors.py` owns HTTP error/detail mapping.
 - Current static UI refactor boundary: `app/static/api.js` owns shared HTTP
   helpers; `app/static/qualification.js` owns qualified-buying bucket helpers
   and browser/server sync for sticky qualified chat IDs; `app/static/app.js`

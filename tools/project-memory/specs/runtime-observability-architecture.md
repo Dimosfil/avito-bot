@@ -7,17 +7,20 @@ and storage query organization in Module 2.
 
 ## Runtime Log Pipeline
 
-- Runtime diagnostic log delivery is owned by the sibling `ai_logger` package
-  from `D:\AI\ai_logger`.
+- Runtime diagnostic log delivery may use the sibling `ai_logger` package from
+  `D:\AI\ai_logger` when it is installed, but `avito-bot` must remain runnable
+  without that machine-local checkout.
 - Application code records compact events through the local
   `_record_admin_log(...)` boundary, but it must not implement plugin fan-out,
   server delivery, file delivery, retry buffering, or backend-specific
   conversion inline.
-- `app/admin_logging.py` is only a thin compatibility bridge: it keeps the
-  existing `/api/admin/logs` in-memory buffer and sanitizes event details before
-  forwarding them to `ai_logger.Logger`.
-- `ai_logger.LogAggregator` owns delivery to configured plugins. Plugin
-  failures are retained by `ai_logger` and must not break lead processing.
+- `app/admin_logging.py` is a compatibility bridge: it keeps the existing
+  `/api/admin/logs` in-memory buffer and sanitizes event details before
+  forwarding them to the external `ai_logger.Logger` or the built-in compatible
+  fallback.
+- `ai_logger.LogAggregator` or the built-in fallback aggregator owns delivery
+  to configured plugins. Plugin failures are retained and must not break lead
+  processing.
 - `AI_LOGGER_*` environment variables configure forwarding. Use
   `AI_LOGGER_JSONL_PATH` for JSON Lines, `AI_LOGGER_SERVER_URL` for the separate
   `ai_logger` ingest server, and `AI_LOGGER_SERVER_TOKEN` when the ingest server

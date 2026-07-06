@@ -6,6 +6,7 @@ import sqlite3
 
 from app.assistant import AssistantDraft
 from app import main as main_module
+from app import manager_notifications
 from app.main import app, manager_takeover_chat_ids
 
 
@@ -297,7 +298,7 @@ def test_chats_load_classifies_buying_intent_from_message_history(monkeypatch) -
 
 
 def test_manager_telegram_template_contains_context() -> None:
-    text = main_module._format_manager_telegram_message(
+    text = manager_notifications._format_manager_telegram_message(
         title="Нужен менеджер",
         chat={
             "id": "test-chat",
@@ -432,7 +433,7 @@ def test_autoreply_restore_enables_worker_by_default(monkeypatch) -> None:
     assert main_module._load_autoreply_enabled() is True
 
 
-def test_process_unread_sends_ai_reply(monkeypatch) -> None:
+def test_process_unread_sends_ai_reply(monkeypatch, tmp_path) -> None:
     sent_messages: list[tuple[str, str]] = []
     read_chats: list[str] = []
     events: list[str] = []
@@ -494,6 +495,15 @@ def test_process_unread_sends_ai_reply(monkeypatch) -> None:
     assert sent_messages == [("chat-1", "reply text")]
     assert read_chats == ["chat-1"]
     assert events == ["read", "draft", "send"]
+
+    with sqlite3.connect(tmp_path / "avito-bot.sqlite3") as con:
+        row = con.execute(
+            "SELECT action_type, payload_json FROM manager_actions WHERE external_chat_id = ?",
+            ("chat-1",),
+        ).fetchone()
+    assert row is not None
+    assert row[0] == "ai_auto_reply_sent"
+    assert '"reply_strategy": "ai"' in row[1]
 
 
 def test_process_unread_retries_pending_read_chat_after_restart(monkeypatch) -> None:
@@ -697,7 +707,7 @@ def test_process_unread_skips_manager_takeover_chat(monkeypatch) -> None:
     monkeypatch.setattr("app.main.AvitoClient", FakeAvitoClient)
     monkeypatch.setattr("app.main.DeepSeekClient", lambda settings: object())
     monkeypatch.setattr("app.main.SalesAssistant", FakeAssistant)
-    monkeypatch.setattr("app.main._send_telegram_notification", fake_send_telegram_notification)
+    monkeypatch.setattr("app.manager_notifications._send_telegram_notification", fake_send_telegram_notification)
     client = TestClient(app)
     client.post("/api/avito/chats/chat-1/bot-control", json={"manager_takeover": True})
 
@@ -877,7 +887,7 @@ def test_process_unread_notifies_telegram_and_answers_qualified_buying_chat(monk
     monkeypatch.setattr("app.main.AvitoClient", FakeAvitoClient)
     monkeypatch.setattr("app.main.DeepSeekClient", lambda settings: object())
     monkeypatch.setattr("app.main.SalesAssistant", FakeAssistant)
-    monkeypatch.setattr("app.main._send_telegram_notification", fake_send_telegram_notification)
+    monkeypatch.setattr("app.manager_notifications._send_telegram_notification", fake_send_telegram_notification)
     client = TestClient(app)
     client.post("/api/avito/qualified-buying-chats", json={"chat_ids": ["chat-qualified"]})
 
@@ -946,7 +956,7 @@ def test_process_unread_skips_qualified_chat_after_manual_takeover(monkeypatch) 
     monkeypatch.setattr("app.main.AvitoClient", FakeAvitoClient)
     monkeypatch.setattr("app.main.DeepSeekClient", lambda settings: object())
     monkeypatch.setattr("app.main.SalesAssistant", FakeAssistant)
-    monkeypatch.setattr("app.main._send_telegram_notification", fake_send_telegram_notification)
+    monkeypatch.setattr("app.manager_notifications._send_telegram_notification", fake_send_telegram_notification)
     client = TestClient(app)
 
     qualified = client.post("/api/avito/qualified-buying-chats", json={"chat_ids": ["chat-qualified"]})

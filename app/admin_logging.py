@@ -1,9 +1,99 @@
 from __future__ import annotations
 
 from collections import deque
+from dataclasses import dataclass
+from datetime import UTC, datetime
+import json
+from pathlib import Path
 from typing import Any, Mapping
 
-from ai_logger import LogRecord, Logger, build_aggregator_from_env
+try:
+    from ai_logger import LogRecord, Logger, build_aggregator_from_env
+except ImportError:  # pragma: no cover - exercised in container builds without sibling package
+    @dataclass(frozen=True)
+    class _LogLevel:
+        name: str
+
+    @dataclass(frozen=True)
+    class LogRecord:
+        level: _LogLevel
+        message: str
+        context: dict[str, Any]
+        timestamp: datetime
+
+    class _JsonlPlugin:
+        name = "jsonl"
+
+        def __init__(self, path: str) -> None:
+            self.path = Path(path)
+
+        def emit(self, record: LogRecord) -> None:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "timestamp": record.timestamp.isoformat(),
+                "level": record.level.name,
+                "message": record.message,
+                "context": record.context,
+            }
+            with self.path.open("a", encoding="utf-8") as file:
+                file.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+        def flush(self) -> None:
+            return None
+
+        def close(self) -> None:
+            self.flush()
+
+    class _LogAggregator:
+        def __init__(self, *, default_context: dict[str, Any] | None = None) -> None:
+            self.default_context = default_context or {}
+            self.plugins: list[Any] = []
+            self.failed_records: list[tuple[LogRecord, str, str]] = []
+
+        def add_plugin(self, plugin: Any) -> None:
+            self.plugins.append(plugin)
+
+        def emit(self, record: LogRecord) -> None:
+            for plugin in self.plugins:
+                try:
+                    plugin.emit(record)
+                except Exception as exc:
+                    self.failed_records.append((record, getattr(plugin, "name", plugin.__class__.__name__), str(exc)))
+
+    class Logger:
+        def __init__(self, name: str, aggregator: _LogAggregator) -> None:
+            self.name = name
+            self.aggregator = aggregator
+
+        def log(self, level: str, message: str, **context: Any) -> None:
+            merged_context = {**self.aggregator.default_context, **context}
+            record = LogRecord(
+                level=_LogLevel(level.upper()),
+                message=message,
+                context=merged_context,
+                timestamp=datetime.now(UTC),
+            )
+            self.aggregator.emit(record)
+
+        def info(self, message: str, **context: Any) -> None:
+            self.log("INFO", message, **context)
+
+        def warning(self, message: str, **context: Any) -> None:
+            self.log("WARNING", message, **context)
+
+        def error(self, message: str, **context: Any) -> None:
+            self.log("ERROR", message, **context)
+
+    def build_aggregator_from_env(
+        environ: Mapping[str, str] | None = None,
+        default_context: dict[str, Any] | None = None,
+    ) -> _LogAggregator:
+        env = environ or {}
+        aggregator = _LogAggregator(default_context=default_context)
+        jsonl_path = env.get("AI_LOGGER_JSONL_PATH")
+        if jsonl_path:
+            aggregator.add_plugin(_JsonlPlugin(jsonl_path))
+        return aggregator
 
 
 SECRET_KEY_PARTS = ("token", "secret", "password", "key", "authorization", "cookie")
