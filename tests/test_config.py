@@ -40,6 +40,28 @@ def test_avito_live_sync_flag_can_disable_live_api(monkeypatch) -> None:
     assert status["avito_live_sync_enabled"] is False
 
 
+def test_ai_logger_can_be_configured_from_env(monkeypatch) -> None:
+    monkeypatch.setenv("AI_LOGGER_LEVEL", "DEBUG")
+    monkeypatch.setenv("AI_LOGGER_PROJECT", "avito-bot")
+    monkeypatch.setenv("AI_LOGGER_SERVICE", "api")
+    monkeypatch.setenv("AI_LOGGER_ENVIRONMENT", "dev")
+    monkeypatch.setenv("AI_LOGGER_SERVER_URL", "http://127.0.0.1:8765/ingest")
+    monkeypatch.setenv("AI_LOGGER_SERVER_TOKEN", "secret-token")
+    monkeypatch.setenv("AI_LOGGER_JSONL_PATH", ".codex-runtime/logs/runtime.jsonl")
+
+    settings = get_settings()
+
+    assert settings.ai_logger_level == "DEBUG"
+    assert settings.ai_logger_project == "avito-bot"
+    assert settings.ai_logger_service == "api"
+    assert settings.ai_logger_environment == "dev"
+    assert settings.ai_logger_server_url == "http://127.0.0.1:8765/ingest"
+    assert settings.ai_logger_jsonl_path == ".codex-runtime/logs/runtime.jsonl"
+    assert settings.public_status()["ai_logger_server_configured"] is True
+    assert settings.public_status()["ai_logger_server_token_configured"] is True
+    assert "secret-token" not in str(settings.public_status())
+
+
 def test_create_ai_client_defaults_to_deepseek() -> None:
     settings = Settings(
         avito_client_id=None,

@@ -5,18 +5,29 @@ Last reviewed: 2026-07-06
 This specification records backend architecture boundaries for runtime logging
 and storage query organization in Module 2.
 
-## Admin Runtime Logs
+## Runtime Log Pipeline
 
-- Admin/runtime log events are owned by `app/admin_logging.py`.
-- API route code may record events through the shared log buffer, but it must
-  not implement secret redaction, bounded retention, sequence assignment, or log
-  response shaping inline.
+- Runtime diagnostic log delivery is owned by the sibling `ai_logger` package
+  from `D:\AI\ai_logger`.
+- Application code records compact events through the local
+  `_record_admin_log(...)` boundary, but it must not implement plugin fan-out,
+  server delivery, file delivery, retry buffering, or backend-specific
+  conversion inline.
+- `app/admin_logging.py` is only a thin compatibility bridge: it keeps the
+  existing `/api/admin/logs` in-memory buffer and sanitizes event details before
+  forwarding them to `ai_logger.Logger`.
+- `ai_logger.LogAggregator` owns delivery to configured plugins. Plugin
+  failures are retained by `ai_logger` and must not break lead processing.
+- `AI_LOGGER_*` environment variables configure forwarding. Use
+  `AI_LOGGER_JSONL_PATH` for JSON Lines, `AI_LOGGER_SERVER_URL` for the separate
+  `ai_logger` ingest server, and `AI_LOGGER_SERVER_TOKEN` when the ingest server
+  requires bearer authentication.
 - `/api/admin/logs` exposes only sanitized log details. Secret-like keys such as
   tokens, API keys, passwords, and secrets must be redacted before the response
   leaves the backend.
-- The log buffer is intentionally in-memory for current runtime diagnostics.
-  Durable business events, handoff records, manager actions, and Avito sync data
-  remain in `RuntimeStore`.
+- The admin buffer remains in memory for current runtime diagnostics. Durable
+  business events, handoff records, manager actions, and Avito sync data remain
+  in `RuntimeStore`.
 
 ## Lead Processing Event Model
 
@@ -32,9 +43,20 @@ Required event categories:
   `AVITO_LIVE_SYNC_ENABLED=false`.
 - `config_error`, `avito_http_status_error`, and `avito_request_failed`: record
   integration failures without exposing credentials or raw tokens.
-- Future logging work should add process events for chat scan start/end,
-  message persistence, AI draft decisions, handoff detection, Telegram
-  notification attempts, manual takeover changes, and skipped-chat reasons.
+- `chat_scan_start` and `chat_scan_end`: record every unread-processing scan
+  with compact counts and duration.
+- `chats_persisted`, `messages_persisted`, `chat_persistence_failed`, and
+  `message_persistence_failed`: record cache persistence results without full
+  payloads.
+- `message_accepted`, `ai_draft_decision`, `ai_auto_reply_sent`, and
+  `chat_processing_failed`: record the AI reply path and failures.
+- `handoff_detected` and `manager_notification_attempted`: record handoff and
+  manager notification outcomes.
+- `manual_takeover_changed`, `chat_manager_folder`, and `chat_skipped`: record
+  manual control and skip reasons.
+- `backup_failed`, `autoreply_worker_failed`, `webhook_received`, and
+  `webhook_persistence_failed`: record supporting runtime failures and webhook
+  intake.
 
 Business process boundaries:
 

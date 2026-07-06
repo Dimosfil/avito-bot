@@ -142,3 +142,38 @@ Access and privacy boundary:
   examples, screenshots, logs, or chat.
 - Store real values only in Bothost environment variables, local ignored `.env`
   files, or another approved secret store.
+
+## ai_logger
+
+Role: external runtime diagnostics and log delivery package for Module 2.
+
+Canonical sources:
+
+- Local checkout: `D:\AI\ai_logger`
+- Package name: `ai-logger`
+- Python import package: `ai_logger`
+
+Data/API contract:
+
+- `avito-bot` records compact runtime events through `_record_admin_log(...)`.
+- `app/admin_logging.py` keeps the existing `/api/admin/logs` in-memory view
+  and forwards sanitized events to `ai_logger.Logger`.
+- `ai_logger.LogAggregator` owns plugin delivery to JSONL, HTTP, or the
+  separate ingest server depending on `AI_LOGGER_*` environment variables.
+- Configure `AI_LOGGER_SERVER_URL` to send records to the standalone
+  `ai_logger` server `/ingest`; configure `AI_LOGGER_JSONL_PATH` for direct
+  local JSON Lines output.
+
+Access and privacy boundary:
+
+- Never send raw Avito credentials, AI provider keys, bearer tokens, cookies, or
+  full customer transcripts through diagnostic log detail.
+- Keep log details compact and sanitized before forwarding to `ai_logger`.
+- Treat JSONL fallback files as runtime artifacts, not project memory.
+
+Current decision:
+
+- Depend on the local checkout with `ai-logger @ file:///D:/AI/ai_logger` during
+  development.
+- Preserve existing `avito-bot` admin log API while using `ai_logger` as the
+  underlying external logging direction.

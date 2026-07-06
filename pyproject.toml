@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Avito-first AI conversation automation MVP"
 requires-python = ">=3.12"
 dependencies = [
+    "ai-logger @ file:///D:/AI/ai_logger",
     "fastapi>=0.116.0",
     "httpx>=0.28.0",
     "psycopg[binary]>=3.2.0",

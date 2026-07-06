@@ -33,6 +33,14 @@ class Settings:
     avito_live_sync_enabled: bool = True
     avito_base_url: str = "https://api.avito.ru"
     deepseek_base_url: str = "https://api.deepseek.com"
+    ai_logger_level: str = "INFO"
+    ai_logger_project: str | None = None
+    ai_logger_service: str | None = None
+    ai_logger_environment: str | None = None
+    ai_logger_server_url: str | None = None
+    ai_logger_server_token: str | None = None
+    ai_logger_jsonl_path: str | None = None
+    ai_logger_fallback_jsonl_path: str | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -57,6 +65,14 @@ class Settings:
             telegram_bot_token=_blank_to_none(os.getenv("TELEGRAM_BOT_TOKEN")),
             manager_telegram_chat_id=_blank_to_none(os.getenv("MANAGER_TELEGRAM_CHAT_ID")),
             telegram_notify_timeout_seconds=_positive_int(os.getenv("TELEGRAM_NOTIFY_TIMEOUT_SECONDS"), 5),
+            ai_logger_level=os.getenv("AI_LOGGER_LEVEL", "INFO").strip() or "INFO",
+            ai_logger_project=_blank_to_none(os.getenv("AI_LOGGER_PROJECT")),
+            ai_logger_service=_blank_to_none(os.getenv("AI_LOGGER_SERVICE")),
+            ai_logger_environment=_blank_to_none(os.getenv("AI_LOGGER_ENVIRONMENT")),
+            ai_logger_server_url=_blank_to_none(os.getenv("AI_LOGGER_SERVER_URL")),
+            ai_logger_server_token=_blank_to_none(os.getenv("AI_LOGGER_SERVER_TOKEN")),
+            ai_logger_jsonl_path=_blank_to_none(os.getenv("AI_LOGGER_JSONL_PATH")),
+            ai_logger_fallback_jsonl_path=_blank_to_none(os.getenv("AI_LOGGER_FALLBACK_JSONL_PATH")),
         )
 
     @property
@@ -84,6 +100,14 @@ class Settings:
             "telegram_bot_configured": bool(self.telegram_bot_token),
             "manager_telegram_chat_configured": bool(self.manager_telegram_chat_id),
             "telegram_notify_timeout_seconds": self.telegram_notify_timeout_seconds,
+            "ai_logger_level": self.ai_logger_level,
+            "ai_logger_project": self.ai_logger_project,
+            "ai_logger_service": self.ai_logger_service,
+            "ai_logger_environment": self.ai_logger_environment,
+            "ai_logger_server_configured": bool(self.ai_logger_server_url),
+            "ai_logger_server_token_configured": bool(self.ai_logger_server_token),
+            "ai_logger_jsonl_configured": bool(self.ai_logger_jsonl_path),
+            "ai_logger_fallback_jsonl_configured": bool(self.ai_logger_fallback_jsonl_path),
         }
 
 

@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-import time
 from collections import deque
-from typing import Any
+from typing import Any, Mapping
+
+from ai_logger import LogRecord, Logger, build_aggregator_from_env
 
 
-SECRET_KEY_PARTS = ("token", "secret", "password", "key")
+SECRET_KEY_PARTS = ("token", "secret", "password", "key", "authorization", "cookie")
 
 
 class AdminLogBuffer:
+    name = "admin_memory"
+
     def __init__(self, *, maxlen: int = 300) -> None:
         self._sequence = 0
         self._records: deque[dict[str, Any]] = deque(maxlen=maxlen)
@@ -22,12 +25,31 @@ class AdminLogBuffer:
         self._records.append(
             {
                 "id": self._sequence,
-                "created_at": time.time(),
+                "created_at": None,
                 "level": level,
                 "event": event,
                 "detail": safe_log_detail(detail),
             }
         )
+
+    def emit(self, record: LogRecord) -> None:
+        self._sequence += 1
+        detail = record.context.get("detail", record.context)
+        self._records.append(
+            {
+                "id": self._sequence,
+                "created_at": record.timestamp.timestamp(),
+                "level": record.level.name.lower(),
+                "event": record.message,
+                "detail": safe_log_detail(detail),
+            }
+        )
+
+    def flush(self) -> None:
+        return None
+
+    def close(self) -> None:
+        self.flush()
 
     def list(self, *, limit: int = 100) -> dict[str, Any]:
         limit = max(1, min(limit, self.maxlen or 300))
@@ -37,6 +59,18 @@ class AdminLogBuffer:
     def clear(self) -> None:
         self._sequence = 0
         self._records.clear()
+
+
+def create_runtime_logger(
+    name: str,
+    *,
+    admin_buffer: AdminLogBuffer,
+    environ: Mapping[str, str] | None = None,
+    context: dict[str, Any] | None = None,
+) -> Logger:
+    aggregator = build_aggregator_from_env(environ, default_context=context)
+    aggregator.add_plugin(admin_buffer)
+    return Logger(name, aggregator)
 
 
 def safe_log_detail(detail: Any | None) -> Any:

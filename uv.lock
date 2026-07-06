@@ -3,6 +3,11 @@ revision = 3
 requires-python = ">=3.12"
 
 [[package]]
+name = "ai-logger"
+version = "0.1.0"
+source = { directory = "D:/AI/ai_logger" }
+
+[[package]]
 name = "annotated-doc"
 version = "0.0.4"
 source = { registry = "https://pypi.org/simple" }
@@ -38,6 +43,7 @@ name = "avito-bot"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "ai-logger" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "psycopg", extra = ["binary"] },
@@ -52,6 +58,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "ai-logger", directory = "D:/AI/ai_logger" },
     { name = "fastapi", specifier = ">=0.116.0" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.0" },

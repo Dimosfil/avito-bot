@@ -24,6 +24,8 @@ def clear_runtime_state(tmp_path, monkeypatch):
     monkeypatch.delenv("TELEGRAM_NOTIFY_TIMEOUT_SECONDS", raising=False)
     main_module.runtime_store = None
     main_module.runtime_store_key = None
+    main_module.runtime_logger = None
+    main_module.runtime_logger_key = None
     manager_takeover_chat_ids.clear()
     main_module.explicit_manager_takeover_chat_ids.clear()
     main_module.known_bot_control_chat_ids.clear()
@@ -45,6 +47,8 @@ def clear_runtime_state(tmp_path, monkeypatch):
     main_module.backup_worker_task = None
     main_module.runtime_store = None
     main_module.runtime_store_key = None
+    main_module.runtime_logger = None
+    main_module.runtime_logger_key = None
     main_module.admin_logs.clear()
     main_module.bot_activity.update({"enabled": False, "running": False, "last_result": None, "last_error": None})
 

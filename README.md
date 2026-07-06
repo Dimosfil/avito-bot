@@ -176,6 +176,15 @@ Automatic backups run every `AVITO_BACKUP_INTERVAL_SECONDS` seconds, default
 app writes a JSON export of application tables; the database itself should also
 be protected by the hoster's managed PostgreSQL retention.
 
+## Runtime Diagnostics
+
+The app keeps recent sanitized runtime events in `/api/admin/logs` and can
+forward the same events through the sibling `ai_logger` package. Configure
+`AI_LOGGER_JSONL_PATH` for local JSON Lines output or `AI_LOGGER_SERVER_URL` for
+the standalone `ai_logger` ingest server. Optional settings include
+`AI_LOGGER_PROJECT`, `AI_LOGGER_SERVICE`, `AI_LOGGER_ENVIRONMENT`,
+`AI_LOGGER_SERVER_TOKEN`, and `AI_LOGGER_FALLBACK_JSONL_PATH`.
+
 MVP target:
 
 - accept incoming customer messages from supported channels or local test

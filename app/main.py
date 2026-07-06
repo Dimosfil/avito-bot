@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from app.ai_client import FallbackAIClient
 from app import autoreply_logic
-from app.admin_logging import AdminLogBuffer, safe_log_detail
+from app.admin_logging import AdminLogBuffer, create_runtime_logger, safe_log_detail
 from app.assistant import SalesAssistant, order_messages
 from app.avito_payload import chat_item_key, message_text, safe_int
 from app.avito_client import AvitoClient, AvitoConfigError
@@ -53,6 +53,8 @@ bot_worker_interval_seconds = 5
 runtime_store: RuntimeStore | None = None
 runtime_store_key: tuple[str, str, str] | None = None
 admin_logs = AdminLogBuffer(maxlen=300)
+runtime_logger: object | None = None
+runtime_logger_key: tuple[object, ...] | None = None
 bot_activity: dict[str, Any] = {
     "enabled": False,
     "running": False,
@@ -362,6 +364,11 @@ async def avito_set_chat_bot_control(chat_id: str, request: ChatBotControlReques
         "set_bot_control",
         {"manager_takeover": request.manager_takeover},
     )
+    _record_admin_log(
+        "info",
+        "manual_takeover_changed",
+        {"chat_id": chat_id, "manager_takeover": request.manager_takeover},
+    )
     return _chat_bot_control_response(chat_id)
 
 
@@ -379,6 +386,11 @@ async def avito_save_qualified_buying_chats(request: QualifiedBuyingChatsRequest
     chat_ids.update(new_chat_ids)
     _save_qualified_buying_chat_ids(chat_ids)
     _clear_automatic_takeover_for_qualified_chats(new_chat_ids)
+    _record_admin_log(
+        "info",
+        "qualified_buying_chats_updated",
+        {"added_count": len(new_chat_ids), "total_count": len(chat_ids)},
+    )
     return {"chat_ids": sorted(chat_ids), "count": len(chat_ids)}
 
 
@@ -459,10 +471,12 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
     qualified_chat_ids = _load_qualified_buying_chat_ids()
     _clear_automatic_takeover_for_qualified_chats(qualified_chat_ids)
     scan_started_at = time.time()
+    _record_admin_log("info", "chat_scan_start", {"limit": limit, "pending_count": len(pending)})
 
     try:
         chats_response = await avito.get_chats(limit=limit, unread_only=True)
     except Exception as exc:
+        _record_admin_log("error", "chat_scan_failed", {"stage": "unread_chats", "error": _error_detail(exc)})
         raise _to_http_error(exc) from exc
 
     chats = list(chats_response.get("chats", []))
@@ -470,6 +484,7 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
     try:
         recent_response = await avito.get_chats(limit=limit, unread_only=False)
     except Exception as exc:
+        _record_admin_log("error", "chat_scan_failed", {"stage": "recent_chats", "error": _error_detail(exc)})
         raise _to_http_error(exc) from exc
     for chat in recent_response.get("chats", []):
         chat_id = str(chat.get("id") or "")
@@ -485,7 +500,12 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
                 chat = await avito.get_chat(chat_id)
                 chat.setdefault("id", chat_id)
                 chats.append(chat)
-            except Exception:
+            except Exception as exc:
+                _record_admin_log(
+                    "warning",
+                    "pending_chat_restore_failed",
+                    {"chat_id": chat_id, "error": _error_detail(exc)},
+                )
                 chats.append({"id": chat_id})
 
     _persist_avito_chats(chats)
@@ -494,6 +514,7 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
     for chat in chats:
         chat_id = str(chat.get("id") or "")
         if not chat_id:
+            _record_admin_log("warning", "chat_skipped", {"reason": "missing_chat_id"})
             results.append(ProcessedUnreadChat(chat_id="", status="skipped", error="missing chat id"))
             continue
 
@@ -505,6 +526,15 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
             is_manager_takeover = chat_id in manager_takeover_chat_ids
             is_qualified_buying = chat_id in qualified_chat_ids
             if is_manager_takeover or is_qualified_buying:
+                _record_admin_log(
+                    "info",
+                    "chat_manager_folder",
+                    {
+                        "chat_id": chat_id,
+                        "manager_takeover": is_manager_takeover,
+                        "qualified_buying": is_qualified_buying,
+                    },
+                )
                 manager_notification = await _notify_manager_folder_messages(
                     settings,
                     chat=chat,
@@ -528,11 +558,21 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
             if not latest_message or latest_message.get("direction") != "in":
                 status = "answered" if _has_outbound_after_message(messages, pending_item) else "skipped"
                 _clear_autoreply_pending(chat_id)
+                _record_admin_log(
+                    "info",
+                    "chat_skipped",
+                    {"chat_id": chat_id, "reason": "no_latest_inbound", "status": status},
+                )
                 results.append(ProcessedUnreadChat(chat_id=chat_id, status=status))
                 continue
 
             message_key = _message_processing_key(latest_message)
             if not pending_item and processed_inbound.get(chat_id) == message_key:
+                _record_admin_log(
+                    "info",
+                    "chat_skipped",
+                    {"chat_id": chat_id, "reason": "already_processed", "message_key": message_key},
+                )
                 results.append(ProcessedUnreadChat(chat_id=chat_id, status="already_processed"))
                 continue
 
@@ -559,7 +599,27 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
                     "estimate_seconds": estimate_seconds,
                 }
                 await avito.mark_chat_read(chat_id)
+                _record_admin_log(
+                    "info",
+                    "message_accepted",
+                    {
+                        "chat_id": chat_id,
+                        "message_id": received_message_id,
+                        "estimate_seconds": estimate_seconds,
+                    },
+                )
             draft = await assistant.draft_reply(chat, messages)
+            _record_admin_log(
+                "info",
+                "ai_draft_decision",
+                {
+                    "chat_id": chat_id,
+                    "message_id": received_message_id,
+                    "handoff_required": draft.handoff_required,
+                    "handoff_reason": draft.handoff_reason,
+                    "reply_length": len(draft.text.strip()),
+                },
+            )
             if draft.handoff_required:
                 sent = await avito.send_text_message(chat_id, draft.text.strip())
                 sent_at = time.time()
@@ -571,6 +631,16 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
                     chat_id=chat_id,
                     handoff_reason=draft.handoff_reason,
                     received_text=message_text(latest_message),
+                )
+                _record_admin_log(
+                    "info",
+                    "handoff_detected",
+                    {
+                        "chat_id": chat_id,
+                        "message_id": received_message_id,
+                        "handoff_reason": draft.handoff_reason,
+                        "notification_status": notification.get("status"),
+                    },
                 )
                 if notification.get("status") != "failed":
                     _mark_manager_telegram_notified_message(manager_notified_messages, chat_id, latest_message)
@@ -613,6 +683,16 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
             _mark_processed_inbound_message(processed_inbound, chat_id, latest_message)
             sent_at = time.time()
             _clear_autoreply_pending(chat_id)
+            _record_admin_log(
+                "info",
+                "ai_auto_reply_sent",
+                {
+                    "chat_id": chat_id,
+                    "message_id": received_message_id,
+                    "sent_message_id": str(sent.get("id") or ""),
+                    "duration_ms": _elapsed_ms(accepted_at, sent_at),
+                },
+            )
             results.append(
                 ProcessedUnreadChat(
                     chat_id=chat_id,
@@ -627,8 +707,19 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
                 )
             )
         except Exception as exc:
+            _record_admin_log("error", "chat_processing_failed", {"chat_id": chat_id, "error": _error_detail(exc)})
             results.append(ProcessedUnreadChat(chat_id=chat_id, status="failed", error=_error_detail(exc)))
 
+    _record_admin_log(
+        "info",
+        "chat_scan_end",
+        {
+            "processed_count": len(results),
+            "sent_count": sum(1 for result in results if result.status == "sent"),
+            "handoff_count": sum(1 for result in results if result.handoff_required),
+            "duration_ms": _elapsed_ms(scan_started_at),
+        },
+    )
     return {
         "processed": [result.model_dump() for result in results],
         "processed_count": len(results),
@@ -655,6 +746,7 @@ async def _bot_worker_loop() -> None:
             bot_activity["last_result"] = result
         except Exception as exc:  # pragma: no cover - surfaced through status endpoint
             bot_activity["last_error"] = _error_detail(exc)
+            _record_admin_log("error", "autoreply_worker_failed", {"error": _error_detail(exc)})
         finally:
             bot_activity.update(
                 {
@@ -690,11 +782,12 @@ def _chat_bot_control_response(chat_id: str) -> dict[str, Any]:
 async def avito_webhook(payload: dict[str, Any]) -> dict[str, object]:
     webhook_events.insert(0, payload)
     del webhook_events[50:]
-    get_runtime_store().record_manager_action(
-        str(payload.get("chat_id") or payload.get("id") or "webhook"),
-        "webhook_received",
-        payload,
-    )
+    chat_id = str(payload.get("chat_id") or payload.get("id") or "webhook")
+    try:
+        get_runtime_store().record_manager_action(chat_id, "webhook_received", payload)
+    except Exception as exc:
+        _record_admin_log("error", "webhook_persistence_failed", {"chat_id": chat_id, "error": _error_detail(exc)})
+    _record_admin_log("info", "webhook_received", {"chat_id": chat_id, "type": payload.get("type")})
     return {"ok": True}
 
 
@@ -722,6 +815,7 @@ async def _backup_worker_loop() -> None:
             store.create_backup(keep=get_settings().backup_retention_count)
         except Exception as exc:  # pragma: no cover - surfaced through storage status/logs
             bot_activity["last_backup_error"] = _error_detail(exc)
+            _record_admin_log("error", "backup_failed", {"error": _error_detail(exc)})
 
 
 def _migrate_legacy_runtime_json_to_store() -> None:
@@ -754,8 +848,9 @@ def _load_json_file(path: Path, *, default: Any) -> Any:
 def _persist_avito_chats(chats: list[dict[str, Any]]) -> None:
     try:
         get_runtime_store().upsert_avito_chats(chats)
-    except Exception:
-        pass
+        _record_admin_log("info", "chats_persisted", {"count": len(chats)})
+    except Exception as exc:
+        _record_admin_log("error", "chat_persistence_failed", {"count": len(chats), "error": _error_detail(exc)})
 
 
 def _persist_avito_messages(chat_id: str, messages_response: dict[str, Any]) -> None:
@@ -764,8 +859,13 @@ def _persist_avito_messages(chat_id: str, messages_response: dict[str, Any]) -> 
         return
     try:
         get_runtime_store().upsert_avito_messages(chat_id, messages)
-    except Exception:
-        pass
+        _record_admin_log("info", "messages_persisted", {"chat_id": chat_id, "count": len(messages)})
+    except Exception as exc:
+        _record_admin_log(
+            "error",
+            "message_persistence_failed",
+            {"chat_id": chat_id, "count": len(messages), "error": _error_detail(exc)},
+        )
 
 
 def _load_autoreply_pending() -> dict[str, dict[str, Any]]:
@@ -852,7 +952,12 @@ async def _sync_qualified_buying_from_chats(client: AvitoClient, chats: list[dic
         async with semaphore:
             try:
                 messages = await client.get_messages(chat_id, limit=50)
-            except Exception:
+            except Exception as exc:
+                _record_admin_log(
+                    "warning",
+                    "qualified_buying_inspection_failed",
+                    {"chat_id": chat_id, "error": _error_detail(exc)},
+                )
                 return None
             _persist_avito_messages(chat_id, messages)
             return chat_id if _messages_have_buying_intent(messages) else None
@@ -952,7 +1057,7 @@ def _to_http_error(exc: Exception) -> HTTPException:
         _record_admin_log(
             "error",
             "avito_http_status_error",
-            {"status_code": exc.response.status_code, "detail": safe_log_detail(detail)},
+            {"status_code": exc.response.status_code, "detail": detail},
         )
         return HTTPException(status_code=exc.response.status_code, detail=detail)
     if isinstance(exc, httpx.RequestError):
@@ -1026,6 +1131,11 @@ async def _notify_manager_folder_messages(
             reason=_telegram_reason_for_manager_folder_chat(chat or {}),
         )
         notification = await _send_telegram_notification(settings, text)
+        _record_admin_log(
+            "info",
+            "manager_notification_attempted",
+            {"chat_id": chat_id, "message_key": message_key, "status": notification.get("status")},
+        )
         get_runtime_store().record_manager_action(
             chat_id,
             "manager_message_notified",
@@ -1176,5 +1286,34 @@ def _error_detail(exc: Exception) -> object:
     return str(exc) or exc.__class__.__name__
 
 
+def _get_runtime_logger(settings: Settings | None = None):
+    global runtime_logger, runtime_logger_key
+    settings = settings or get_settings()
+    key = (
+        settings.ai_logger_level,
+        settings.ai_logger_service,
+        settings.ai_logger_project,
+        settings.ai_logger_environment,
+        settings.ai_logger_jsonl_path,
+        settings.ai_logger_server_url,
+        bool(settings.ai_logger_server_token),
+    )
+    if runtime_logger is not None and runtime_logger_key == key:
+        return runtime_logger
+
+    runtime_logger = create_runtime_logger(
+        "avito-bot.runtime",
+        admin_buffer=admin_logs,
+        context={
+            "project": settings.ai_logger_project or "avito-bot",
+            "service": settings.ai_logger_service or "api",
+            "environment": settings.ai_logger_environment or "local",
+        },
+    )
+    runtime_logger_key = key
+    return runtime_logger
+
+
 def _record_admin_log(level: str, event: str, detail: Any | None = None) -> None:
-    admin_logs.record(level, event, detail)
+    sanitized = safe_log_detail(detail)
+    _get_runtime_logger().log(level, event, detail=sanitized)
