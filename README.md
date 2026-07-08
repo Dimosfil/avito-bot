@@ -184,15 +184,14 @@ be protected by the hoster's managed PostgreSQL retention.
 
 ## Runtime Diagnostics
 
-The app keeps recent sanitized runtime events in `/api/admin/logs`. When the
-external `ai_logger` package is installed, `app/admin_logging.py` can use it for
-log fan-out; otherwise the app uses a built-in compatible fallback so Docker
-images do not depend on a machine-local checkout. Configure
-`AI_LOGGER_JSONL_PATH` for local JSON Lines output. When the external package is
-available, `AI_LOGGER_SERVER_URL` can point to the standalone `ai_logger` ingest
-server. Optional settings include
-`AI_LOGGER_PROJECT`, `AI_LOGGER_SERVICE`, `AI_LOGGER_ENVIRONMENT`,
-`AI_LOGGER_SERVER_TOKEN`, and `AI_LOGGER_FALLBACK_JSONL_PATH`.
+The app keeps recent sanitized runtime events in `/api/admin/logs` and installs
+the external `ai_logger` package from Git for Docker/runtime log fan-out. The
+dependency is not a machine-local file dependency, so Dockerfile-only builds can
+restore it from `uv.lock`. Configure `AI_LOGGER_SERVER_URL` to forward records
+to the standalone `ai_logger` ingest server, or `AI_LOGGER_JSONL_PATH` for local
+JSON Lines output. Optional settings include `AI_LOGGER_PROJECT`,
+`AI_LOGGER_SERVICE`, `AI_LOGGER_ENVIRONMENT`, `AI_LOGGER_SERVER_TOKEN`, and
+`AI_LOGGER_FALLBACK_JSONL_PATH`.
 
 MVP target:
 

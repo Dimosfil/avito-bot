@@ -157,10 +157,9 @@ Data/API contract:
 
 - `avito-bot` records compact runtime events through `_record_admin_log(...)`.
 - `app/admin_logging.py` keeps the existing `/api/admin/logs` in-memory view
-  and forwards sanitized events to `ai_logger.Logger` when the external package
-  is installed. If it is unavailable, the app uses a built-in compatible
-  fallback for the admin buffer and JSONL delivery so Docker images remain
-  self-contained.
+  and forwards sanitized events to `ai_logger.Logger`. The package is installed
+  as a Git dependency through `pyproject.toml` / `uv.lock` so Dockerfile-only
+  builds can restore it without depending on a machine-local checkout.
 - `ai_logger.LogAggregator` owns plugin delivery to JSONL, HTTP, or the
   separate ingest server when the external package is installed. The built-in
   fallback supports the local JSONL path and admin in-memory buffer.
@@ -177,8 +176,9 @@ Access and privacy boundary:
 
 Current decision:
 
-- Do not require the local checkout as an install dependency for `avito-bot`;
-  machine-local file dependencies break Dockerfile-only builds and hosted
-  deployments.
-- Preserve existing `avito-bot` admin log API while using `ai_logger` as an
-  optional external logging direction.
+- Require `ai-logger` as a Git dependency for `avito-bot` runtime builds; do not
+  use the local checkout path as an install dependency because machine-local
+  file dependencies break Dockerfile-only builds and hosted deployments.
+- Preserve existing `avito-bot` admin log API while using `ai_logger` as the
+  external logging direction when `AI_LOGGER_SERVER_URL` or
+  `AI_LOGGER_JSONL_PATH` is configured.

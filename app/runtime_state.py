@@ -134,6 +134,22 @@ def save_qualified_buying_chat_ids(store: RuntimeStore, state_key: str, chat_ids
     store.set_state(state_key, sorted(chat_ids))
 
 
+def load_telegram_notification_mode(store: RuntimeStore, state_key: str) -> str:
+    data = store.get_state(state_key)
+    if data in {"all", "qualified"}:
+        return str(data)
+    if isinstance(data, dict) and data.get("mode") in {"all", "qualified"}:
+        return str(data["mode"])
+    store.set_state(state_key, "all")
+    return "all"
+
+
+def save_telegram_notification_mode(store: RuntimeStore, state_key: str, mode: str) -> str:
+    normalized = mode if mode in {"all", "qualified"} else "all"
+    store.set_state(state_key, normalized)
+    return normalized
+
+
 def load_processed_inbound_messages(store: RuntimeStore, state_key: str) -> dict[str, str]:
     data = store.get_state(state_key)
     if not isinstance(data, dict):

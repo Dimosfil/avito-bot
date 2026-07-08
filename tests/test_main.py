@@ -76,6 +76,20 @@ def test_storage_status_and_manual_backup() -> None:
     assert backup.json()["path"].endswith(".sqlite3")
 
 
+def test_telegram_notification_settings_default_and_update() -> None:
+    client = TestClient(app)
+
+    initial = client.get("/api/bot/telegram-notifications")
+    updated = client.post("/api/bot/telegram-notifications", json={"mode": "qualified"})
+    loaded = client.get("/api/bot/telegram-notifications")
+
+    assert initial.status_code == 200
+    assert initial.json() == {"mode": "all", "notify_all": True, "notify_qualified_only": False}
+    assert updated.status_code == 200
+    assert updated.json() == {"mode": "qualified", "notify_all": False, "notify_qualified_only": True}
+    assert loaded.json()["mode"] == "qualified"
+
+
 def test_webhook_echo_storage() -> None:
     client = TestClient(app)
 
@@ -780,6 +794,123 @@ def test_process_unread_answers_new_item_after_existing_baseline(monkeypatch) ->
     assert get_messages_calls == ["chat-existing", "chat-new-item"]
     assert read_chats == ["chat-new-item"]
     assert sent_messages == [("chat-new-item", "reply text")]
+
+
+def test_process_unread_default_telegram_mode_notifies_regular_chat(monkeypatch) -> None:
+    sent_messages: list[tuple[str, str]] = []
+    telegram_messages: list[str] = []
+
+    class FakeAvitoClient:
+        def __init__(self, settings) -> None:
+            self.settings = settings
+
+        async def get_chats(self, limit: int = 20, offset: int = 0, unread_only: bool = False):
+            if not unread_only:
+                return {"chats": []}
+            return {
+                "chats": [
+                    {
+                        "id": "chat-regular",
+                        "title": "Client",
+                        "context": {"value": {"title": "Regular item"}},
+                    }
+                ]
+            }
+
+        async def get_messages(self, chat_id: str, limit: int = 50, offset: int = 0):
+            return {
+                "messages": [
+                    {"id": "message-regular", "created": 1, "direction": "in", "type": "text", "content": {"text": "hello"}}
+                ]
+            }
+
+        async def send_text_message(self, chat_id: str, text: str):
+            sent_messages.append((chat_id, text))
+            return {"id": "sent-1"}
+
+        async def mark_chat_read(self, chat_id: str):
+            return {}
+
+    class FakeAssistant:
+        def __init__(self, deepseek) -> None:
+            self.deepseek = deepseek
+
+        async def draft_reply(self, chat, messages):
+            return AssistantDraft(text="reply text", handoff_required=False, handoff_reason=None)
+
+    async def fake_send_telegram_notification(settings, text):
+        telegram_messages.append(text)
+        return {"status": "sent"}
+
+    monkeypatch.setattr("app.main.AvitoClient", FakeAvitoClient)
+    monkeypatch.setattr("app.main.DeepSeekClient", lambda settings: object())
+    monkeypatch.setattr("app.main.SalesAssistant", FakeAssistant)
+    monkeypatch.setattr("app.manager_notifications._send_telegram_notification", fake_send_telegram_notification)
+    client = TestClient(app)
+
+    response = client.post("/api/avito/process-unread")
+
+    assert response.status_code == 200
+    assert response.json()["processed"][0]["status"] == "sent"
+    assert sent_messages == [("chat-regular", "reply text")]
+    assert len(telegram_messages) == 1
+    assert "Новое сообщение от клиента" in telegram_messages[0]
+    assert "Причина: новое входящее" in telegram_messages[0]
+    assert "hello" in telegram_messages[0]
+    assert "Client" in telegram_messages[0]
+
+
+def test_process_unread_qualified_telegram_mode_skips_regular_chat_notification(monkeypatch) -> None:
+    sent_messages: list[tuple[str, str]] = []
+    telegram_messages: list[str] = []
+
+    class FakeAvitoClient:
+        def __init__(self, settings) -> None:
+            self.settings = settings
+
+        async def get_chats(self, limit: int = 20, offset: int = 0, unread_only: bool = False):
+            if not unread_only:
+                return {"chats": []}
+            return {"chats": [{"id": "chat-regular", "context": {"value": {"title": "Regular item"}}}]}
+
+        async def get_messages(self, chat_id: str, limit: int = 50, offset: int = 0):
+            return {
+                "messages": [
+                    {"id": "message-regular", "created": 1, "direction": "in", "type": "text", "content": {"text": "hello"}}
+                ]
+            }
+
+        async def send_text_message(self, chat_id: str, text: str):
+            sent_messages.append((chat_id, text))
+            return {"id": "sent-1"}
+
+        async def mark_chat_read(self, chat_id: str):
+            return {}
+
+    class FakeAssistant:
+        def __init__(self, deepseek) -> None:
+            self.deepseek = deepseek
+
+        async def draft_reply(self, chat, messages):
+            return AssistantDraft(text="reply text", handoff_required=False, handoff_reason=None)
+
+    async def fake_send_telegram_notification(settings, text):
+        telegram_messages.append(text)
+        return {"status": "sent"}
+
+    monkeypatch.setattr("app.main.AvitoClient", FakeAvitoClient)
+    monkeypatch.setattr("app.main.DeepSeekClient", lambda settings: object())
+    monkeypatch.setattr("app.main.SalesAssistant", FakeAssistant)
+    monkeypatch.setattr("app.manager_notifications._send_telegram_notification", fake_send_telegram_notification)
+    client = TestClient(app)
+    client.post("/api/bot/telegram-notifications", json={"mode": "qualified"})
+
+    response = client.post("/api/avito/process-unread")
+
+    assert response.status_code == 200
+    assert response.json()["processed"][0]["status"] == "sent"
+    assert sent_messages == [("chat-regular", "reply text")]
+    assert telegram_messages == []
 
 
 def test_process_unread_handles_new_chat_in_existing_item(monkeypatch) -> None:

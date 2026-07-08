@@ -23,6 +23,10 @@ class QualifiedBuyingChatsRequest(BaseModel):
     chat_ids: list[str] = Field(default_factory=list)
 
 
+class TelegramNotificationSettingsRequest(BaseModel):
+    mode: str = Field(pattern="^(all|qualified)$")
+
+
 class ItemStatsRequest(BaseModel):
     item_ids: list[int] = Field(min_length=1, max_length=200)
     date_from: date

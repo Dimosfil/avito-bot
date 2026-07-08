@@ -31,6 +31,7 @@ class ProcessUnreadServices:
     mark_processed_inbound_message: Callable[[dict[str, str], str, dict[str, Any]], None]
     load_manager_telegram_notified_message_keys: Callable[[], dict[str, set[str]]]
     mark_manager_telegram_notified_message: Callable[[dict[str, set[str]], str, dict[str, Any]], None]
+    load_telegram_notification_mode: Callable[[], str]
     load_qualified_buying_chat_ids: Callable[[], set[str]]
     add_qualified_buying_chat_id: Callable[[str], None]
     clear_automatic_takeover_for_qualified_chats: Callable[[set[str]], None]
@@ -40,6 +41,7 @@ class ProcessUnreadServices:
     track_bot_control_items: Callable[[list[dict[str, Any]]], None]
     notify_manager_handoff: Callable[..., Any]
     notify_manager_folder_messages: Callable[..., Any]
+    notify_inbound_messages: Callable[..., Any]
     latest_non_system_message: Callable[[dict[str, Any]], dict[str, Any] | None]
     is_recent_chat: Callable[[dict[str, Any]], bool]
     message_processing_key: Callable[[dict[str, Any]], str]
@@ -155,6 +157,16 @@ async def _process_chat(
     pending_item = pending.get(chat_id)
     is_manager_takeover = chat_id in services.manager_takeover_chat_ids
     is_qualified_buying = chat_id in qualified_chat_ids
+    telegram_notification_mode = services.load_telegram_notification_mode()
+    inbound_notification = {"notified_count": 0, "errors": []}
+    if telegram_notification_mode == "all":
+        inbound_notification = await services.notify_inbound_messages(
+            services.settings,
+            chat=chat,
+            chat_id=chat_id,
+            messages_response=messages,
+            notified_state=manager_notified_messages,
+        )
     pre_strategy = select_pre_draft_strategy(
         manager_takeover=is_manager_takeover,
         latest_message_is_inbound=bool(latest_message and latest_message.get("direction") == "in"),
@@ -182,12 +194,14 @@ async def _process_chat(
         if is_manager_takeover:
             if pending_item:
                 services.clear_autoreply_pending(chat_id)
-            status = "manager_notified" if manager_notification["notified_count"] else "manager_active"
+            notified_count = int(inbound_notification.get("notified_count") or 0) + int(manager_notification["notified_count"] or 0)
+            errors = list(inbound_notification.get("errors") or []) + list(manager_notification["errors"] or [])
+            status = "manager_notified" if notified_count else "manager_active"
             results.append(
                 ProcessedUnreadChat(
                     chat_id=chat_id,
                     status=status,
-                    error=manager_notification["errors"] or None,
+                    error=errors or None,
                 )
             )
             return

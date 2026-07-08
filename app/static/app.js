@@ -23,6 +23,9 @@ const draftText = document.querySelector("#draftText");
 const unreadOnlyInput = document.querySelector("#unreadOnlyInput");
 const processUnreadButton = document.querySelector("#processUnreadButton");
 const managerTakeoverButton = document.querySelector("#managerTakeoverButton");
+const telegramNotifyAllInput = document.querySelector("#telegramNotifyAllInput");
+const telegramNotifyQualifiedInput = document.querySelector("#telegramNotifyQualifiedInput");
+const telegramNotificationBadge = document.querySelector("#telegramNotificationBadge");
 const automationLine = document.querySelector("#automationLine");
 const botActivity = document.querySelector("#botActivity");
 const refreshStatsItemsButton = document.querySelector("#refreshStatsItemsButton");
@@ -53,6 +56,7 @@ let avitoCredentialsReady = false;
 let avitoLiveSyncEnabled = true;
 let automationBusy = false;
 let groupBotControlBusy = false;
+let telegramNotificationMode = "all";
 let pollingTimer = null;
 let currentChats = [];
 let currentChatsFingerprint = "";
@@ -107,6 +111,8 @@ readButton.addEventListener("click", markRead);
 draftButton.addEventListener("click", draftReply);
 useDraftButton.addEventListener("click", useDraft);
 managerTakeoverButton.addEventListener("click", syncChatBotControl);
+telegramNotifyAllInput.addEventListener("change", syncTelegramNotificationMode);
+telegramNotifyQualifiedInput.addEventListener("change", syncTelegramNotificationMode);
 refreshStatsItemsButton.addEventListener("click", refreshStatsItems);
 loadStatsButton.addEventListener("click", loadItemStats);
 refreshLogsButton.addEventListener("click", loadAdminLogs);
@@ -120,6 +126,7 @@ async function initialize() {
   restoreWorkspaceLayout();
   initializeStatsDates();
   const status = await refreshStatus();
+  await refreshTelegramNotificationMode();
   await syncQualifiedBuyingChatIdsFromServer();
   if (status.avito_client_id_configured && status.avito_client_secret_configured) {
     try {
@@ -151,6 +158,37 @@ async function refreshStatus() {
   connectionLine.className = ready ? "" : "error";
   updateAvitoControls(ready);
   return data;
+}
+
+async function refreshTelegramNotificationMode() {
+  const data = await api("/api/bot/telegram-notifications", { quiet: true });
+  applyTelegramNotificationMode(data.mode || "all");
+  return data;
+}
+
+async function syncTelegramNotificationMode(event) {
+  const requestedMode = event.target.value === "qualified" ? "qualified" : "all";
+  const previousMode = telegramNotificationMode;
+  applyTelegramNotificationMode(requestedMode);
+  try {
+    const data = await api("/api/bot/telegram-notifications", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: requestedMode }),
+    });
+    applyTelegramNotificationMode(data.mode || requestedMode);
+    showOutput(data);
+  } catch (error) {
+    applyTelegramNotificationMode(previousMode);
+    showOutput({ error: error.message });
+  }
+}
+
+function applyTelegramNotificationMode(mode) {
+  telegramNotificationMode = mode === "qualified" ? "qualified" : "all";
+  telegramNotifyAllInput.checked = telegramNotificationMode === "all";
+  telegramNotifyQualifiedInput.checked = telegramNotificationMode === "qualified";
+  telegramNotificationBadge.textContent = telegramNotificationMode === "all" ? "all" : "qualified";
 }
 
 async function checkToken() {

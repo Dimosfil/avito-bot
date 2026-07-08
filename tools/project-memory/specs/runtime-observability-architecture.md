@@ -7,17 +7,17 @@ and storage query organization in Module 2.
 
 ## Runtime Log Pipeline
 
-- Runtime diagnostic log delivery may use the sibling `ai_logger` package from
-  `D:\AI\ai_logger` when it is installed, but `avito-bot` must remain runnable
-  without that machine-local checkout.
+- Runtime diagnostic log delivery uses the `ai-logger` package from Git via
+  `pyproject.toml` / `uv.lock`. `avito-bot` must not depend on the sibling
+  `D:\AI\ai_logger` checkout path because Dockerfile-only hosted deployments
+  cannot access machine-local paths.
 - Application code records compact events through the local
   `_record_admin_log(...)` boundary, but it must not implement plugin fan-out,
   server delivery, file delivery, retry buffering, or backend-specific
   conversion inline.
 - `app/admin_logging.py` is a compatibility bridge: it keeps the existing
   `/api/admin/logs` in-memory buffer and sanitizes event details before
-  forwarding them to the external `ai_logger.Logger` or the built-in compatible
-  fallback.
+  forwarding them to the external `ai_logger.Logger`.
 - `ai_logger.LogAggregator` or the built-in fallback aggregator owns delivery
   to configured plugins. Plugin failures are retained and must not break lead
   processing.

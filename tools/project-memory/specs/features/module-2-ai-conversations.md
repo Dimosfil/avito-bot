@@ -149,6 +149,12 @@ First runnable slice:
   should keep the client warm and answer calmly until a manager explicitly
   turns `Ручной режим` on for that chat. Telegram manager notifications stay
   active for qualified chats even while AI replies remain enabled.
+- Telegram manager notifications are configurable in the manager UI and persisted
+  as runtime state. The default mode is `all`, which sends a Telegram alert for
+  each newly observed inbound client message after the initial history baseline.
+  The alternate `qualified` mode limits routine Telegram alerts to manual
+  takeover, handoff, and qualified-buying chats while normal AI replies continue
+  for regular chats.
 - UI service-purchase trigger words and regex phrases must live in a separate
   project-local rules dictionary, not inline inside the chat rendering logic.
   The current browser-side dictionary is `app/static/bot-rules.js` under

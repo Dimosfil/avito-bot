@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>avito-bot · AI Inbox</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260703-resizable-panels" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260708-telegram-notifications" />
   </head>
   <body>
     <main class="app-shell">
@@ -115,6 +115,22 @@
             <button id="webhooksButton" type="button">Webhook</button>
           </div>
           <div class="insight-stack">
+            <section class="insight-card">
+              <div class="insight-card-head">
+                <strong>Telegram</strong>
+                <span id="telegramNotificationBadge" class="mini-badge">all</span>
+              </div>
+              <div class="segmented-control" role="radiogroup" aria-label="Telegram notifications">
+                <label>
+                  <input id="telegramNotifyAllInput" name="telegramNotificationMode" type="radio" value="all" />
+                  <span>От всех</span>
+                </label>
+                <label>
+                  <input id="telegramNotifyQualifiedInput" name="telegramNotificationMode" type="radio" value="qualified" />
+                  <span>Согласные</span>
+                </label>
+              </div>
+            </section>
             <section class="insight-card">
               <div class="insight-card-head">
                 <strong>Следующее действие</strong>

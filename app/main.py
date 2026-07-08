@@ -29,6 +29,7 @@ from app.schemas import (
     ItemStatsRequest,
     QualifiedBuyingChatsRequest,
     SendMessageRequest,
+    TelegramNotificationSettingsRequest,
 )
 from app.storage import RuntimeStore
 
@@ -42,6 +43,7 @@ BOT_CONTROL_STATE_PATH = RUNTIME_DIR / "bot-control-state.json"
 QUALIFIED_BUYING_STATE_KEY = "qualified_buying_chat_ids"
 PROCESSED_INBOUND_STATE_KEY = "processed_inbound_message_keys"
 MANAGER_TELEGRAM_NOTIFIED_STATE_KEY = "manager_telegram_notified_message_keys"
+TELEGRAM_NOTIFICATION_MODE_STATE_KEY = "telegram_notification_mode"
 RECENT_READ_CHAT_LOOKBACK_SECONDS = 15 * 60
 
 webhook_events: list[dict[str, Any]] = []
@@ -428,6 +430,18 @@ async def bot_autoreply_status() -> dict[str, Any]:
     return _bot_activity_response()
 
 
+@bot_router.get("/telegram-notifications")
+async def bot_telegram_notifications() -> dict[str, Any]:
+    return _telegram_notification_settings_response()
+
+
+@bot_router.post("/telegram-notifications")
+async def bot_set_telegram_notifications(request: TelegramNotificationSettingsRequest) -> dict[str, Any]:
+    mode = _save_telegram_notification_mode(request.mode)
+    _record_admin_log("info", "telegram_notification_mode_changed", {"mode": mode})
+    return _telegram_notification_settings_response()
+
+
 async def _process_unread(limit: int = 20) -> dict[str, Any]:
     settings = get_settings()
     services = process_unread.ProcessUnreadServices(
@@ -445,6 +459,7 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
         mark_processed_inbound_message=_mark_processed_inbound_message,
         load_manager_telegram_notified_message_keys=_load_manager_telegram_notified_message_keys,
         mark_manager_telegram_notified_message=_mark_manager_telegram_notified_message,
+        load_telegram_notification_mode=_load_telegram_notification_mode,
         load_qualified_buying_chat_ids=_load_qualified_buying_chat_ids,
         add_qualified_buying_chat_id=_add_qualified_buying_chat_id,
         clear_automatic_takeover_for_qualified_chats=_clear_automatic_takeover_for_qualified_chats,
@@ -454,6 +469,7 @@ async def _process_unread(limit: int = 20) -> dict[str, Any]:
         track_bot_control_items=_track_bot_control_items,
         notify_manager_handoff=_notify_manager_handoff,
         notify_manager_folder_messages=_notify_manager_folder_messages,
+        notify_inbound_messages=_notify_inbound_messages,
         latest_non_system_message=_latest_non_system_message,
         is_recent_chat=lambda chat: _is_recent_chat(chat, now=time.time()),
         message_processing_key=_message_processing_key,
@@ -470,6 +486,15 @@ async def _bot_worker_loop() -> None:
 
 def _bot_activity_response() -> dict[str, Any]:
     return autoreply_worker.activity_response(activity=bot_activity, task=bot_worker_task)
+
+
+def _telegram_notification_settings_response() -> dict[str, Any]:
+    mode = _load_telegram_notification_mode()
+    return {
+        "mode": mode,
+        "notify_all": mode == "all",
+        "notify_qualified_only": mode == "qualified",
+    }
 
 
 def _autoreply_worker_services() -> autoreply_worker.AutoreplyWorkerServices:
@@ -631,6 +656,14 @@ def _save_qualified_buying_chat_ids(chat_ids: set[str]) -> None:
     runtime_state.save_qualified_buying_chat_ids(get_runtime_store(), QUALIFIED_BUYING_STATE_KEY, chat_ids)
 
 
+def _load_telegram_notification_mode() -> str:
+    return runtime_state.load_telegram_notification_mode(get_runtime_store(), TELEGRAM_NOTIFICATION_MODE_STATE_KEY)
+
+
+def _save_telegram_notification_mode(mode: str) -> str:
+    return runtime_state.save_telegram_notification_mode(get_runtime_store(), TELEGRAM_NOTIFICATION_MODE_STATE_KEY, mode)
+
+
 def _add_qualified_buying_chat_id(chat_id: str) -> None:
     chat_ids = _load_qualified_buying_chat_ids()
     chat_ids.add(chat_id)
@@ -734,6 +767,27 @@ async def _notify_manager_folder_messages(
         message_processing_key=_message_processing_key,
         mark_notified_message=_mark_manager_telegram_notified_message,
         save_notified_state=_save_manager_telegram_notified_message_keys,
+        record_admin_log=_record_admin_log,
+        record_manager_action=get_runtime_store().record_manager_action,
+    )
+
+
+async def _notify_inbound_messages(
+    settings: Settings,
+    *,
+    chat: dict[str, Any] | None = None,
+    chat_id: str,
+    messages_response: dict[str, Any],
+    notified_state: dict[str, set[str]],
+) -> dict[str, object]:
+    return await manager_notification_service.notify_inbound_messages(
+        settings,
+        chat=chat,
+        chat_id=chat_id,
+        messages_response=messages_response,
+        notified_state=notified_state,
+        message_processing_key=_message_processing_key,
+        mark_notified_message=_mark_manager_telegram_notified_message,
         record_admin_log=_record_admin_log,
         record_manager_action=get_runtime_store().record_manager_action,
     )
