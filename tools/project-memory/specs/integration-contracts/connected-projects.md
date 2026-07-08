@@ -128,6 +128,29 @@ Current hosting decision:
   deployments; the Dockerfile `CMD` starts `uvicorn app.main:app`.
 - Keep `PORT=8000` unless Bothost injects another runtime port.
 
+Previously working Bothost panel snapshot, recorded from user screenshots on
+2026-07-08:
+
+- Bot display name: `AvitoBot`.
+- Platform selected during creation: `Telegram`.
+- Development language: `Python`.
+- Python version selector: `3.11` recommended.
+- Deployment location: Netherlands / Amsterdam.
+- Git repository URL: `https://github.com/Dimosfil/avito-bot.git`.
+- Branch: `main`.
+- `Use domain` enabled.
+- Web application port: `8000`.
+- Custom domain: `avitobot.bothost.tech`.
+- Main file / entry point left empty.
+- `Use custom Dockerfile` enabled.
+- The Telegram bot token field is required by the Bothost Telegram template,
+  but the actual token is a secret and must stay only in Bothost secret/env
+  storage.
+- Verification after restoring the panel settings:
+  `https://avitobot.bothost.tech/api/health` returns `200 {"status":"ok"}` and
+  `https://avitobot.bothost.tech/` returns the admin UI page titled
+  `avito-bot · AI Inbox`.
+
 Deployment environment contract:
 
 - Required variables: `PORT`, `AI_PROVIDER`, `DEEPSEEK_API_KEY`,
@@ -135,6 +158,13 @@ Deployment environment contract:
 - Optional variables: `HOST_PORT`, `AVITO_USER_ID`, `AVITO_WEBHOOK_URL`,
   `CODEX_APP_SERVER_BASE_URL`, `CODEX_APP_SERVER_API_KEY`, and
   `CODEX_APP_SERVER_MODEL`.
+- The previously working Bothost setup also used `API_HOST=0.0.0.0`,
+  `API_PORT=8000`, `HOST_PORT=8000`, `AVITO_LIVE_SYNC_ENABLED=true`,
+  `MANAGER_TELEGRAM_CHAT_ID`, `TELEGRAM_NOTIFY_TIMEOUT_SECONDS`,
+  `AVITO_BACKUP_INTERVAL_SECONDS`, `AVITO_BACKUP_RETENTION_COUNT`, and optional
+  `AI_LOGGER_*` settings. Placeholder UI values such as the literal Russian
+  word for "value" are not real configuration and should be left blank or
+  omitted unless the app explicitly needs that variable.
 
 Access and privacy boundary:
 
