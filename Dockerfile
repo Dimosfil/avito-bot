@@ -2,8 +2,8 @@ FROM python:3.14-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ENV UV_SYSTEM_PYTHON=1
 ENV UV_LINK_MODE=copy
+ENV PATH="/app/.venv/bin:${PATH}"
 
 WORKDIR /app
 
@@ -22,4 +22,4 @@ RUN mkdir -p /app/.codex-runtime
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "/app/.venv/bin/python -m uvicorn app.main:app --host ${API_HOST:-0.0.0.0} --port ${PORT:-${API_PORT:-8000}}"]
+CMD ["sh", "-c", "uvicorn app.main:app --host ${API_HOST:-0.0.0.0} --port ${PORT:-${API_PORT:-8000}}"]
