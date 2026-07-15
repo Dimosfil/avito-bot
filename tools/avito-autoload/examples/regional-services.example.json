@@ -1,0 +1,36 @@
+{
+  "defaults": {
+    "listingFee": "Package",
+    "adStatus": "Free",
+    "contactMethod": "По телефону и в сообщениях",
+    "category": "Предложение услуг",
+    "serviceType": "Деловые услуги",
+    "serviceSubtype": "IT, дизайн, тексты",
+    "serviceSubspecies": "ИИ-решения, нейросети",
+    "price": 5000,
+    "consultations": "Есть",
+    "workWithContract": "Да",
+    "prepayment": "Нужна",
+    "place": "Удалённо"
+  },
+  "template": {
+    "idPattern": "service-{CitySlug}-001",
+    "title": "AI-боты для бизнеса и автоматизации продаж",
+    "description": "Разрабатываю AI-ботов для компаний и специалистов из города {City}. Работа проходит удалённо. Опишите процесс, который хотите автоматизировать, — предложу структуру решения, стоимость и сроки.",
+    "images": [
+      "https://example.com/avito/image-01.jpg"
+    ]
+  },
+  "cities": [
+    {
+      "name": "Москва",
+      "slug": "moscow",
+      "address": "Москва"
+    },
+    {
+      "name": "Санкт-Петербург",
+      "slug": "saint-petersburg",
+      "address": "Санкт-Петербург"
+    }
+  ]
+}

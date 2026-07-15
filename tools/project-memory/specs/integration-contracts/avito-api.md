@@ -13,6 +13,10 @@ automation.
   `https://developers.avito.ru/api-catalog/messenger/documentation`
 - Auth API documentation:
   `https://developers.avito.ru/api-catalog/auth/documentation`
+- Autoload API documentation:
+  `https://developers.avito.ru/api-catalog/autoload/documentation`
+- Autoload workflow contract:
+  `tools/project-memory/specs/integration-contracts/avito-autoload.md`
 
 ## Access Finding
 
@@ -143,6 +147,11 @@ Current implementation map:
 
 The current UI is a hello-world integration console, not the final manager
 handoff workspace.
+
+Regional listing generation and publication are a separate operator workflow.
+Use `tools/avito-autoload/` and the durable Autoload contract; do not add this
+publication logic to the conversation adapter merely because both workflows use
+the same Avito credentials.
 
 DeepSeek AI integration map:
 

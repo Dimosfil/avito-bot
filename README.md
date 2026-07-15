@@ -248,6 +248,27 @@ auto-sent and remain visible for manager attention.
 Bot behavior rules are centralized in `app/bot_rules.py`: handoff phrases,
 prompt guardrails, and deterministic cleanup such as removing repeated greetings.
 
+## Avito Regional Autoload
+
+The repository includes an operator workflow for generating and publishing
+regional service listings through the official Avito Autoload API. It is
+separate from the Module 2 conversation runtime and does not require browser
+automation.
+
+Start with:
+
+```powershell
+.\tools\avito-autoload\New-AvitoRegionalFeed.ps1 `
+  -ManifestPath .\tools\avito-autoload\examples\regional-services.example.json `
+  -OutputPath .\tools\avito-autoload\regional-services.local.xml
+
+.\tools\avito-autoload\Invoke-AvitoAutoload.ps1 -Action CheckAccess
+```
+
+The API consumes a public HTTPS feed URL. Real upload requires the explicit
+`-ConfirmPublish` flag because it can activate listings and consume package
+placements. See `tools/avito-autoload/README.md` for the complete workflow.
+
 ## Documentation
 
 - Product and runtime instructions: `AGENTS.md`
@@ -258,3 +279,5 @@ prompt guardrails, and deterministic cleanup such as removing repeated greetings
 - Active plan: `tools/project-memory/pending-tasks.md`
 - Avito integration notes:
   `tools/project-memory/specs/integration-contracts/avito-api.md`
+- Avito Autoload contract:
+  `tools/project-memory/specs/integration-contracts/avito-autoload.md`

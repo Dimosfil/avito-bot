@@ -176,3 +176,62 @@ directory, and latest backup path without printing database credentials.
   `GET /core/v1/accounts/self`.
 - Real Avito webhooks require a public HTTPS URL and should point to
   `/webhooks/avito/messenger`.
+
+## Avito Regional Autoload
+
+Regional listing publication is an operator workflow, separate from the
+conversation bot runtime. Full instructions are in
+`tools/avito-autoload/README.md`.
+
+Generate a local XML feed from a reviewed manifest:
+
+```powershell
+.\tools\avito-autoload\New-AvitoRegionalFeed.ps1 `
+  -ManifestPath .\tools\avito-autoload\regional-services.local.json `
+  -OutputPath .\tools\avito-autoload\regional-services.local.xml
+```
+
+Check credentials and Autoload access without changing remote state:
+
+```powershell
+.\tools\avito-autoload\Invoke-AvitoAutoload.ps1 -Action CheckAccess
+```
+
+Initialize a missing profile in the disabled state:
+
+```powershell
+.\tools\avito-autoload\Invoke-AvitoAutoload.ps1 `
+  -Action InitializeProfile `
+  -ConfirmChange
+```
+
+After hosting the XML at a controlled public HTTPS URL, configure the profile
+disabled first, inspect it, then repeat with `-AutoloadState Enabled`:
+
+```powershell
+.\tools\avito-autoload\Invoke-AvitoAutoload.ps1 `
+  -Action SetProfile `
+  -FeedUrl "https://example.com/feeds/avito-services.xml" `
+  -FeedName "Regional services" `
+  -AutoloadState Disabled `
+  -Rate 1 `
+  -TimeSlot 12 `
+  -ConfirmChange
+```
+
+Start and monitor a real upload only after reviewing `ListingFee`, the feed,
+and the remote profile:
+
+```powershell
+.\tools\avito-autoload\Invoke-AvitoAutoload.ps1 `
+  -Action StartUpload `
+  -ConfirmPublish
+
+.\tools\avito-autoload\Invoke-AvitoAutoload.ps1 `
+  -Action WatchCurrentUpload
+```
+
+Do not report publication success from the initial `200` response. Wait for a
+terminal upload status and an item section such as `success_added`, then verify
+the returned public listing URL and intended city. Use `ListingFee=Package` for
+guarded trials; `PackageBBL` and `BBL` can spend wallet funds.

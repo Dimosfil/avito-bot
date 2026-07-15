@@ -14,6 +14,27 @@ generated outputs, secrets, credentials, or private production data.
 
 ## Tasks
 
+### Avito regional Autoload operator
+
+Goal: publish truthful service-by-city listings through the official Avito
+Autoload API with deterministic feeds, explicit commercial safeguards, and
+terminal result verification.
+
+- [x] Verify a one-city Moscow publication through the real Autoload API.
+- [x] Record the durable integration contract and project rules.
+- [x] Add regional XML generation and guarded API operator scripts.
+- [x] Add an example two-city manifest and offline verification workflow.
+- [ ] Replace the temporary diagnostic feed URL in the remote profile with a
+  stable operator-controlled HTTPS feed.
+- [x] Review the first published city result and approve the remaining city
+  matrix.
+- [x] Publish the approved 10-city matrix with truthful locations and stable
+  per-city IDs.
+- [x] Verify all 10 feed items as active with no `duplicate`, `linker`, or
+  commercial-package errors in the 2026-07-15 rollout.
+- [ ] Monitor every future rollout through terminal item results before
+  increasing batch size.
+
 ### Module 2 MVP: AI conversation and manager handoff
 
 Goal: build the first usable slice of AI first-line communication with manager

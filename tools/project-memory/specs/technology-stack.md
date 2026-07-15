@@ -1,6 +1,6 @@
 # Technology Stack
 
-Last reviewed: 2026-06-24
+Last reviewed: 2026-07-15
 
 Canonical source: this file
 Linked from: README.md
@@ -29,6 +29,7 @@ stack facts, commands, runtime assumptions, and operational notes here.
 | Build/package | uv | `pyproject.toml`, `uv.lock` | `uv sync` creates `.venv`. |
 | Test/quality | pytest, compileall | `tests/`, `pyproject.toml` | Initial smoke tests exist. |
 | Deployment/runtime | Uvicorn local dev server, local `.release/` runtime, and Docker Compose host runtime | README.md, `tools/AGENT_RUNBOOK.md`, `tools/deploy-local-release.ps1`, `Dockerfile`, `docker-compose.yml` | Local production deploy copies tested source into ignored `.release/` and runs without `--reload`; Docker runs the app in one container and bind-mounts `.codex-runtime/`. |
+| Operator automation | Windows PowerShell 5.1-compatible scripts | `tools/avito-autoload/`, `tools/AGENT_RUNBOOK.md` | Generates regional Avito XML feeds and operates official Autoload endpoints with credentials read from environment variables. |
 
 ## Commands
 
@@ -40,12 +41,14 @@ stack facts, commands, runtime assumptions, and operational notes here.
 | Compile check | `uv run python -m compileall app tests` | README.md |
 | Local release deploy | `.\tools\deploy-local-release.ps1` | README.md, `tools/AGENT_RUNBOOK.md` |
 | Host Docker run | `docker compose up -d --build` | README.md, `tools/AGENT_RUNBOOK.md`, `docker-compose.yml` |
+| Generate Avito regional feed | `.\tools\avito-autoload\New-AvitoRegionalFeed.ps1 ...` | `tools/avito-autoload/README.md` |
+| Operate Avito Autoload | `.\tools\avito-autoload\Invoke-AvitoAutoload.ps1 -Action ...` | `tools/avito-autoload/README.md` |
 
 ## External Services
 
 | Service | Role | Evidence | Boundary |
 | --- | --- | --- | --- |
-| Avito API | First production channel for chats/messages | `tools/project-memory/specs/integration-contracts/avito-api.md` | Credentials in env only; API behind Avito client/adapter. |
+| Avito API | First production channel for chats/messages plus a separate regional Autoload operator workflow | `tools/project-memory/specs/integration-contracts/avito-api.md`, `tools/project-memory/specs/integration-contracts/avito-autoload.md` | Credentials in env only; Messenger stays behind the channel adapter, while listing publication uses isolated operator scripts. |
 | DeepSeek API | Default AI draft provider for sales replies | `tools/project-memory/specs/integration-contracts/connected-projects.md`, `app/deepseek_client.py` | API key in env only; selected with `AI_PROVIDER=deepseek`. |
 | Codex App Server | Optional local/remote AI draft fallback | `tools/project-memory/specs/integration-contracts/connected-projects.md`, `app/codex_app_server_client.py`, `app/ai_client.py` | OpenAI-compatible chat-completions endpoint used as a fallback when DeepSeek is primary and `CODEX_APP_SERVER_BASE_URL` is configured; can still be selected directly with `AI_PROVIDER=codex_app_server`. |
 

@@ -191,6 +191,25 @@ Inspect logs:
   absolute path outside this root, stop and warn the user unless the current
   message explicitly authorizes that exact external path and action.
 - Preserve text encodings when editing files.
+- Treat Avito regional listing publication as the official Autoload workflow,
+  not browser automation or an undocumented web endpoint. Read
+  `tools/project-memory/specs/integration-contracts/avito-autoload.md` and use
+  the scripts under `tools/avito-autoload/` before changing an Autoload profile,
+  feed, schedule, or publication state.
+- Never put Avito client secrets, access tokens, private account responses, or
+  temporary feed-service URLs in source, rules, project memory, examples, or
+  command arguments. Read credentials from `AVITO_CLIENT_ID` and
+  `AVITO_CLIENT_SECRET` environment variables.
+- Generate and inspect the regional XML before publishing it. Keep one stable
+  unique feed `Id` per service-and-city pair, use truthful locations, and do not
+  manufacture text or image differences solely to evade duplicate detection.
+- Treat `POST /autoload/v1/upload` as a real external publication action. Before
+  calling it, verify the public HTTPS feed, current category fields, profile
+  state, schedule, and `ListingFee`; require explicit publication confirmation
+  and monitor `/autoload/v4/uploads/current` through a terminal result.
+- For guarded trials, prefer `ListingFee=Package`. Do not switch to
+  `PackageBBL` or `BBL`, which can fall back to or force a wallet charge,
+  without the user's explicit approval of that paid behavior.
 - Production runtime state is business-critical. `gi prod`, production reboot,
   and local release deploys must preserve `.release/.codex-runtime/` state,
   including server-side autoreply, pending autoreply, and manager takeover
