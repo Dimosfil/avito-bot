@@ -29,6 +29,8 @@ def test_handoff_draft_is_customer_facing() -> None:
     assert draft.handoff_required is True
     assert draft.handoff_reason == "готов купить"
     assert "передам информацию менеджеру" in draft.text.lower()
+    assert draft.text.startswith("✅")
+    assert "\n\n📋" in draft.text
     assert "не отправлять автоответ" not in draft.text.lower()
 
 
@@ -138,6 +140,17 @@ def test_bot_rules_can_load_buying_intent_pattern_from_json_without_python_chang
     assert loaded_rules.buying_intent_re.search("client says custom-buy-signal")
 
 
+def test_bot_rules_keep_default_handoff_reply_for_legacy_config(tmp_path) -> None:
+    data = json.loads(bot_rules.DEFAULT_RULES_PATH.read_text(encoding="utf-8"))
+    data["dialogue_guidance"].pop("handoff_client_reply")
+    rules_path = tmp_path / "bot-rules.json"
+    rules_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+    loaded_rules = bot_rules.load_bot_rules(rules_path)
+
+    assert loaded_rules.dialogue_guidance.handoff_client_reply == bot_rules.DEFAULT_HANDOFF_CLIENT_REPLY
+
+
 def test_admin_command_enables_admin_mode_prompt_for_llm() -> None:
     calls = []
 
@@ -181,6 +194,27 @@ def test_draft_reply_sanitizes_markdown_and_stray_symbols() -> None:
     assert "\u2030" not in draft.text
 
 
+def test_draft_reply_preserves_emoji_bullets_and_paragraphs() -> None:
+    class CapturingDeepSeek:
+        async def create_chat_completion(self, messages):
+            return "💡 Можем автоматизировать:\n• ответы клиентам\n• передачу заявок\n\n🚀 Какой канал подключаем первым?"
+
+    assistant = SalesAssistant(CapturingDeepSeek())
+    draft = asyncio.run(
+        assistant.draft_reply(
+            {},
+            {"messages": [{"direction": "in", "content": {"text": "Что умеет бот?"}}]},
+        )
+    )
+
+    assert draft.text == (
+        "💡 Можем автоматизировать:\n"
+        "• ответы клиентам\n"
+        "• передачу заявок\n\n"
+        "🚀 Какой канал подключаем первым?"
+    )
+
+
 def test_draft_reply_enforces_feminine_self_reference() -> None:
     class CapturingDeepSeek:
         async def create_chat_completion(self, messages):
@@ -202,6 +236,20 @@ def test_admin_prompt_forbids_markdown_formatting() -> None:
 
     assert "Use plain text only" in prompt[0].content
     assert "Do not use Markdown formatting" in prompt[0].content
+
+
+def test_sales_prompt_requires_structured_emoji_formatting() -> None:
+    prompt = build_prompt({}, [{"direction": "in", "content": {"text": "Расскажите об услуге"}}])
+
+    assert "use 1 to 3 relevant emoji as semantic markers" in prompt[0].content
+    assert "plain-text bullet '•'" in prompt[0].content
+    assert "end with one clear question or next step" in prompt[0].content
+
+
+def test_admin_prompt_does_not_require_sales_emoji_formatting() -> None:
+    prompt = build_prompt({}, [{"direction": "in", "content": {"text": "547032 rules"}}])
+
+    assert "use 1 to 3 relevant emoji as semantic markers" not in prompt[0].content
 
 
 def test_admin_prompt_redacts_activation_code_from_conversation() -> None:

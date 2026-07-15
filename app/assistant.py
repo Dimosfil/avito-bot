@@ -24,10 +24,7 @@ class SalesAssistant:
         handoff_reason = None if admin_mode else detect_handoff(messages)
         if handoff_reason:
             return AssistantDraft(
-                text=(
-                    "Приняла, передам информацию менеджеру. "
-                    "С вами свяжутся для уточнения деталей."
-                ),
+                text=bot_rules.HANDOFF_CLIENT_REPLY,
                 handoff_required=True,
                 handoff_reason=handoff_reason,
             )

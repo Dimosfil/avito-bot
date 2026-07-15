@@ -75,6 +75,13 @@ First runnable slice:
   HTTP handlers. The rule layer owns handoff phrases, prompt guardrails, and
   deterministic reply cleanup such as removing repeated greetings after the
   seller has already greeted the client.
+- Customer-facing AI replies should be visually easy to scan in plain-text
+  channels: use one to three relevant emoji as semantic markers, separate
+  distinct ideas with short paragraphs, use `•` lines for lists of two or more
+  items, and finish with one clear question or next step when appropriate.
+  Avoid emoji overload, decorative symbol chains, repeated punctuation, and
+  playful formatting in serious, negative, or sensitive replies. Admin/test
+  mode remains concise and is not required to use the customer sales style.
 - The manager UI shows Avito messages chronologically with day separators,
   per-message time, clear sender roles, and explicit start/latest markers.
 - The manager UI and message search text should preserve media-only inbound

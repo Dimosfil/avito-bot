@@ -10,6 +10,10 @@ from typing import Any
 
 DEFAULT_RULES_PATH = Path(__file__).with_name("rules") / "bot-rules.json"
 RULES_PATH_ENV = "AVITO_BOT_RULES_PATH"
+DEFAULT_HANDOFF_CLIENT_REPLY = (
+    "✅ Приняла ваш запрос.\n\n"
+    "📋 Передам информацию менеджеру — он свяжется с вами для уточнения деталей."
+)
 
 
 @dataclass(frozen=True)
@@ -23,6 +27,7 @@ class DialogueGuidanceRules:
     manager_mention_terms: tuple[str, ...]
     manager_mention_threshold: int
     detail_signal_threshold: int
+    handoff_client_reply: str
     base_rules: tuple[str, ...]
     known_price_rule: str
     price_question_rule: str
@@ -139,6 +144,12 @@ def load_bot_rules(path: Path | str | None = None) -> BotRules:
             manager_mention_terms=_required_str_tuple(dialogue_guidance, "manager_mention_terms", rules_path),
             manager_mention_threshold=_required_int(dialogue_guidance, "manager_mention_threshold", rules_path),
             detail_signal_threshold=_required_int(dialogue_guidance, "detail_signal_threshold", rules_path),
+            handoff_client_reply=_optional_str(
+                dialogue_guidance,
+                "handoff_client_reply",
+                DEFAULT_HANDOFF_CLIENT_REPLY,
+                rules_path,
+            ),
             base_rules=_required_str_tuple(dialogue_guidance, "base_rules", rules_path),
             known_price_rule=_required_str(dialogue_guidance, "known_price_rule", rules_path),
             price_question_rule=_required_str(dialogue_guidance, "price_question_rule", rules_path),
@@ -283,6 +294,13 @@ def _required_int(data: dict[str, Any], key: str, path: Path) -> int:
     return value
 
 
+def _optional_str(data: dict[str, Any], key: str, default: str, path: Path) -> str:
+    value = data.get(key, default)
+    if not isinstance(value, str) or not value:
+        raise RuntimeError(f"Bot rules config at {path} must define non-empty string '{key}' when provided")
+    return value
+
+
 def _required_str_tuple(data: dict[str, Any], key: str, path: Path) -> tuple[str, ...]:
     value = data.get(key)
     if not isinstance(value, list) or not value or not all(isinstance(item, str) and item for item in value):
@@ -314,6 +332,7 @@ TIMING_QUESTION_RE = RULES.timing_question_re
 DETAIL_SIGNAL_RE = RULES.detail_signal_re
 BUYING_INTENT_RE = RULES.buying_intent_re
 HANDOFF_PHRASES = RULES.handoff_phrases
+HANDOFF_CLIENT_REPLY = RULES.dialogue_guidance.handoff_client_reply
 BASE_SYSTEM_RULES = RULES.prompt.base_system_rules
 GREETING_RE = RULES.post_processing.greeting_re
 SELLER_NAME_ADDRESS_RE = RULES.post_processing.seller_name_address_re

@@ -43,8 +43,10 @@ Trigger categories:
 - Chats in the qualified-buying list stay in AI mode by default. This keeps the
   client warm while a manager is busy or has not connected yet.
 - A handoff trigger should produce a short client-facing AI reply such as
-  "передам информацию менеджеру" before notifying the manager. The chat becomes
-  manual only after a manager explicitly turns manual mode on.
+  a two-block confirmation marked with `✅` and `📋` before notifying the
+  manager. The text is owned by the configurable bot-rules resource rather than
+  hard-coded in orchestration code. The chat becomes manual only after a
+  manager explicitly turns manual mode on.
 - Telegram notification failures must be recorded with the handoff action but
   must not cause an Avito auto-processing failure or an accidental AI reply.
 - Manual takeover is reversible: a manager may return any chat to AI by turning
