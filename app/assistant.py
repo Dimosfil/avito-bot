@@ -36,6 +36,8 @@ class SalesAssistant:
         text = bot_rules.strip_repeated_greeting(text, seller_already_greeted=seller_already_greeted(messages))
         text = bot_rules.sanitize_outgoing_text(text)
         text = bot_rules.enforce_seller_feminine_voice(text)
+        if not admin_mode:
+            text = bot_rules.format_customer_reply(text)
         return AssistantDraft(text=text, handoff_required=False, handoff_reason=None)
 
 

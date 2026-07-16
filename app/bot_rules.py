@@ -41,6 +41,12 @@ class PostProcessingRules:
     greeting_re: re.Pattern[str]
     seller_name_address_re: re.Pattern[str]
     client_name_passthrough: frozenset[str]
+    first_marker: str
+    middle_marker: str
+    last_marker: str
+    single_marker: str
+    bullet_marker: str
+    min_inline_list_items: int
 
 
 @dataclass(frozen=True)
@@ -63,6 +69,9 @@ class BotRules:
 MARKDOWN_EMPHASIS_RE = re.compile(r"(?<!\*)\*\*([^*\n]+?)\*\*(?!\*)|(?<!_)__([^_\n]+?)__(?!_)")
 INLINE_CODE_RE = re.compile(r"`([^`\n]+?)`")
 MARKDOWN_HEADING_RE = re.compile(r"(?m)^\s{0,3}#{1,6}\s+")
+SENTENCE_BOUNDARY_RE = re.compile(r"(?<=[.!?])\s+(?=[A-ZА-ЯЁ0-9])")
+EMOJI_PREFIX_RE = re.compile(r"^[\u2600-\u27bf\U0001f300-\U0001faff]")
+INLINE_LIST_SEPARATOR_RE = re.compile(r",\s*|\s+(?:или|и)\s+", re.IGNORECASE)
 FEMININE_SELF_REFERENCE_REPLACEMENTS = (
     (re.compile(r"\b([Яя]\s+)готов\b"), r"\1готова"),
     (re.compile(r"\b([Ии]\s+)готов\b"), r"\1готова"),
@@ -91,6 +100,9 @@ def load_bot_rules(path: Path | str | None = None) -> BotRules:
     intent_patterns = _required_dict(data, "intent_patterns", rules_path)
     prompt = _required_dict(data, "prompt", rules_path)
     post_processing = _required_dict(data, "post_processing", rules_path)
+    reply_formatting = post_processing.get("reply_formatting") or {}
+    if not isinstance(reply_formatting, dict):
+        raise RuntimeError(f"Bot rules config at {rules_path} must define object 'post_processing.reply_formatting'")
     dialogue_guidance = _required_dict(data, "dialogue_guidance", rules_path)
 
     admin_code = _env_override(admin.get("code_env"), _required_str(admin, "code", rules_path))
@@ -139,6 +151,12 @@ def load_bot_rules(path: Path | str | None = None) -> BotRules:
             client_name_passthrough=frozenset(
                 item.casefold() for item in _required_str_tuple(post_processing, "client_name_passthrough", rules_path)
             ),
+            first_marker=_optional_str(reply_formatting, "first_marker", "✅", rules_path),
+            middle_marker=_optional_str(reply_formatting, "middle_marker", "💡", rules_path),
+            last_marker=_optional_str(reply_formatting, "last_marker", "👉", rules_path),
+            single_marker=_optional_str(reply_formatting, "single_marker", "💬", rules_path),
+            bullet_marker=_optional_str(reply_formatting, "bullet_marker", "•", rules_path),
+            min_inline_list_items=_optional_int(reply_formatting, "min_inline_list_items", 3, rules_path),
         ),
         dialogue_guidance=DialogueGuidanceRules(
             manager_mention_terms=_required_str_tuple(dialogue_guidance, "manager_mention_terms", rules_path),
@@ -239,6 +257,53 @@ def sanitize_outgoing_text(text: str) -> str:
     return cleaned.strip()
 
 
+def format_customer_reply(text: str) -> str:
+    """Enforce readable plain-text structure when the model ignores style rules."""
+    cleaned = text.strip()
+    if not cleaned:
+        return cleaned
+
+    blocks = [block.strip() for block in re.split(r"\n\s*\n", cleaned) if block.strip()]
+    if len(blocks) == 1 and "\n" not in blocks[0]:
+        sentences = [sentence.strip() for sentence in SENTENCE_BOUNDARY_RE.split(blocks[0]) if sentence.strip()]
+        if 2 <= len(sentences) <= 5:
+            blocks = sentences
+
+    formatting = RULES.post_processing
+    blocks = [_format_inline_list(block, formatting.bullet_marker, formatting.min_inline_list_items) for block in blocks]
+    if len(blocks) == 1:
+        markers: dict[int, str] = {0: formatting.single_marker}
+    else:
+        markers = {0: formatting.first_marker, len(blocks) - 1: formatting.last_marker}
+        if len(blocks) > 2:
+            markers[1] = formatting.middle_marker
+
+    formatted = []
+    for index, block in enumerate(blocks):
+        marker = markers.get(index)
+        stripped = block.lstrip()
+        if marker is None or EMOJI_PREFIX_RE.match(stripped) or stripped.startswith(formatting.bullet_marker):
+            formatted.append(block)
+        else:
+            formatted.append(f"{marker} {block}")
+    return "\n\n".join(formatted)
+
+
+def _format_inline_list(text: str, bullet_marker: str, min_items: int) -> str:
+    if "\n" in text or ":" not in text:
+        return text
+    heading, raw_items = text.split(":", 1)
+    candidate = raw_items.strip().rstrip(".")
+    if "?" in candidate:
+        return text
+    items = [item.strip() for item in INLINE_LIST_SEPARATOR_RE.split(candidate) if item.strip()]
+    if len(items) < min_items or len(items) > 8:
+        return text
+    if any(len(item) > 40 or any(mark in item for mark in ".;:!?") for item in items):
+        return text
+    return f"{heading.strip()}:\n" + "\n".join(f"{bullet_marker} {item}" for item in items)
+
+
 def enforce_seller_feminine_voice(text: str) -> str:
     cleaned = text
     for pattern, replacement in FEMININE_SELF_REFERENCE_REPLACEMENTS:
@@ -298,6 +363,13 @@ def _optional_str(data: dict[str, Any], key: str, default: str, path: Path) -> s
     value = data.get(key, default)
     if not isinstance(value, str) or not value:
         raise RuntimeError(f"Bot rules config at {path} must define non-empty string '{key}' when provided")
+    return value
+
+
+def _optional_int(data: dict[str, Any], key: str, default: int, path: Path) -> int:
+    value = data.get(key, default)
+    if not isinstance(value, int) or value < 1:
+        raise RuntimeError(f"Bot rules config at {path} must define positive integer '{key}' when provided")
     return value
 
 

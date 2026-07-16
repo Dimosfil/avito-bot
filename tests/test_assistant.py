@@ -215,6 +215,40 @@ def test_draft_reply_preserves_emoji_bullets_and_paragraphs() -> None:
     )
 
 
+def test_draft_reply_enforces_structure_when_model_returns_plain_text() -> None:
+    class CapturingDeepSeek:
+        async def create_chat_completion(self, messages):
+            return (
+                "Дмитрий, спасибо за уточнение. "
+                "Для заказа мне нужно знать тип бота: Telegram, Avito, MAX или CRM. "
+                "Выберите один вариант — и я сразу передам ваш запрос менеджеру для точной оценки сроков и стоимости."
+            )
+
+    assistant = SalesAssistant(CapturingDeepSeek())
+    draft = asyncio.run(
+        assistant.draft_reply(
+            {},
+            {"messages": [{"direction": "in", "content": {"text": "Что нужно для заказа?"}}]},
+        )
+    )
+
+    assert draft.text == (
+        "✅ Дмитрий, спасибо за уточнение.\n\n"
+        "💡 Для заказа мне нужно знать тип бота:\n"
+        "• Telegram\n"
+        "• Avito\n"
+        "• MAX\n"
+        "• CRM\n\n"
+        "👉 Выберите один вариант — и я сразу передам ваш запрос менеджеру для точной оценки сроков и стоимости."
+    )
+
+
+def test_customer_reply_formatter_limits_emoji_markers_to_three() -> None:
+    formatted = bot_rules.format_customer_reply("Первое. Второе. Третье. Четвёрто. Пятое.")
+
+    assert sum(formatted.count(marker) for marker in ("✅", "💡", "👉", "💬")) == 3
+
+
 def test_draft_reply_enforces_feminine_self_reference() -> None:
     class CapturingDeepSeek:
         async def create_chat_completion(self, messages):
@@ -228,7 +262,7 @@ def test_draft_reply_enforces_feminine_self_reference() -> None:
         )
     )
 
-    assert draft.text == "Дмитрий, я работаю круглосуточно и готова помочь."
+    assert draft.text == "💬 Дмитрий, я работаю круглосуточно и готова помочь."
 
 
 def test_admin_prompt_forbids_markdown_formatting() -> None:

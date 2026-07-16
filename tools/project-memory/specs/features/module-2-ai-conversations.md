@@ -82,6 +82,10 @@ First runnable slice:
   Avoid emoji overload, decorative symbol chains, repeated punctuation, and
   playful formatting in serious, negative, or sensitive replies. Admin/test
   mode remains concise and is not required to use the customer sales style.
+  This is a backend output invariant, not only a model-prompt preference: when
+  a model returns an unstructured customer reply, deterministic post-processing
+  must add short paragraph blocks, restrained markers, and bullet lines for a
+  compact inline enumeration before the channel adapter sends it.
 - The manager UI shows Avito messages chronologically with day separators,
   per-message time, clear sender roles, and explicit start/latest markers.
 - The manager UI and message search text should preserve media-only inbound

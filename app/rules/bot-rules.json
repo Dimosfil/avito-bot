@@ -74,7 +74,15 @@
     "client_name_passthrough": [
       "оксана",
       "oksana"
-    ]
+    ],
+    "reply_formatting": {
+      "first_marker": "✅",
+      "middle_marker": "💡",
+      "last_marker": "👉",
+      "single_marker": "💬",
+      "bullet_marker": "•",
+      "min_inline_list_items": 3
+    }
   },
   "dialogue_guidance": {
     "manager_mention_terms": [
