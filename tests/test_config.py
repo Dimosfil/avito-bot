@@ -40,6 +40,14 @@ def test_avito_live_sync_flag_can_disable_live_api(monkeypatch) -> None:
     assert status["avito_live_sync_enabled"] is False
 
 
+def test_autoreply_interval_can_be_configured(monkeypatch) -> None:
+    monkeypatch.setenv("AVITO_AUTOREPLY_INTERVAL_SECONDS", "45")
+
+    status = get_settings().public_status()
+
+    assert status["autoreply_interval_seconds"] == 45
+
+
 def test_ai_logger_can_be_configured_from_env(monkeypatch) -> None:
     monkeypatch.setenv("AI_LOGGER_LEVEL", "DEBUG")
     monkeypatch.setenv("AI_LOGGER_PROJECT", "avito-bot")

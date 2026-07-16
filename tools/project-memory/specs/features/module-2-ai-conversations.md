@@ -95,10 +95,12 @@ First runnable slice:
   messages from the conversation panel. Other chats remain eligible for bot
   replies.
 - The UI loads Avito chats by default after confirming credentials are present.
-- The UI can enable a backend auto-reply worker. The worker polls Avito from the
-  server every few seconds, so automatic replies do not depend on the manager
-  keeping the browser tab focused or visible. The UI periodically refreshes
-  status, chat list, and active conversation while visible.
+- The UI can enable a backend auto-reply worker. After a completed scan, the
+  worker waits the configured `AVITO_AUTOREPLY_INTERVAL_SECONDS` before polling
+  Avito again; the hosted default is 30 seconds and scan duration is additional
+  to that wait. Automatic replies do not depend on the manager keeping the
+  browser tab focused or visible. The UI periodically refreshes status, chat
+  list, and active conversation while visible.
 - The manager UI keeps chats, active conversation, and API inspector in
   independent scroll areas so long histories do not move the whole workspace.
 - The manager UI groups Avito chats by listing/ad context: each listing appears

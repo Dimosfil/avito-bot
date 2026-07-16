@@ -122,6 +122,13 @@ The first smoke check should use `client_credentials` and then call
 `GET /core/v1/accounts/self` from the `user` API to discover the authorized
 account id for `AVITO_USER_ID`.
 
+The runtime client must reuse a successful `client_credentials` access token
+until shortly before `expires_in`, including across short-lived adapter
+instances. It must also reuse the account id discovered through
+`GET /core/v1/accounts/self`. On an authenticated request returning `401`,
+invalidate the cached token, refresh it once, and retry that request once.
+Never persist or log the cached token.
+
 As of 2026-06-23, the user has obtained Avito `client_id` and `client_secret`.
 The actual values are secrets and must not be stored in git, project memory,
 handoff summaries, screenshots committed to the repository, or chat logs beyond

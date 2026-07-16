@@ -204,6 +204,11 @@ Automatic backups run every `AVITO_BACKUP_INTERVAL_SECONDS` seconds, default
 app writes a JSON export of application tables; the database itself should also
 be protected by the hoster's managed PostgreSQL retention.
 
+The server-side Avito auto-reply worker waits
+`AVITO_AUTOREPLY_INTERVAL_SECONDS` between completed scans. The default is 30
+seconds to avoid continuous API and CPU load on hosted containers; a scan's own
+execution time is additional to that interval.
+
 ## Runtime Diagnostics
 
 The app keeps recent sanitized runtime events in `/api/admin/logs`. Hosted

@@ -56,7 +56,7 @@ process_unread_lock = asyncio.Lock()
 bot_worker_task: asyncio.Task[None] | None = None
 backup_worker_task: asyncio.Task[None] | None = None
 bot_worker_enabled = False
-bot_worker_interval_seconds = 5
+bot_worker_interval_seconds = get_settings().autoreply_interval_seconds
 runtime_store: RuntimeStore | None = None
 runtime_store_key: tuple[str, str, str] | None = None
 admin_logs = AdminLogBuffer(maxlen=300)

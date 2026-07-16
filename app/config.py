@@ -25,6 +25,7 @@ class Settings:
     avito_database_path: str | None = None
     avito_backup_dir: str | None = None
     shared_dir: str | None = None
+    autoreply_interval_seconds: int = 30
     backup_interval_seconds: int = 21600
     backup_retention_count: int = 14
     telegram_bot_token: str | None = None
@@ -60,6 +61,7 @@ class Settings:
             avito_database_path=_blank_to_none(os.getenv("AVITO_DATABASE_PATH")),
             avito_backup_dir=_blank_to_none(os.getenv("AVITO_BACKUP_DIR")),
             shared_dir=_blank_to_none(os.getenv("SHARED_DIR")),
+            autoreply_interval_seconds=_positive_int(os.getenv("AVITO_AUTOREPLY_INTERVAL_SECONDS"), 30),
             backup_interval_seconds=_positive_int(os.getenv("AVITO_BACKUP_INTERVAL_SECONDS"), 21600),
             backup_retention_count=_positive_int(os.getenv("AVITO_BACKUP_RETENTION_COUNT"), 14),
             telegram_bot_token=_blank_to_none(os.getenv("TELEGRAM_BOT_TOKEN")),
@@ -94,6 +96,7 @@ class Settings:
             "codex_app_server_model": self.codex_app_server_model,
             "database_url_configured": bool(self.database_url),
             "shared_dir_configured": bool(self.shared_dir),
+            "autoreply_interval_seconds": self.autoreply_interval_seconds,
             "backup_dir_configured": bool(self.avito_backup_dir),
             "backup_interval_seconds": self.backup_interval_seconds,
             "backup_retention_count": self.backup_retention_count,
