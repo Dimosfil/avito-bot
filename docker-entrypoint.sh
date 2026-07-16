@@ -16,6 +16,18 @@ if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
   exit 2
 fi
 
-exec /opt/avito-bot/.venv/bin/python -m uvicorn app.main:app \
-  --host "$host" \
-  --port "$port"
+shared_dir="${SHARED_DIR:-/app/data}"
+log_dir="${AVITO_LOG_DIR:-${shared_dir%/}/avito-bot/logs}"
+
+case "$log_dir" in
+  /*) ;;
+  *)
+    echo "AVITO_LOG_DIR must be an absolute path" >&2
+    exit 2
+    ;;
+esac
+
+mkdir -p "$log_dir"
+export API_HOST="$host" PORT="$port" AVITO_LOG_DIR="$log_dir"
+
+exec /opt/avito-bot/.venv/bin/python -m app.server

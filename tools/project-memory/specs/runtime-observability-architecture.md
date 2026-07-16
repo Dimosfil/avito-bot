@@ -19,9 +19,11 @@ and storage query organization in Module 2.
 - `app/admin_logging.py` is a compatibility bridge: it keeps the existing
   `/api/admin/logs` in-memory buffer and sanitizes event details before using
   external `ai_logger.Logger` when it is already available.
-- `ai_logger.LogAggregator` or the built-in fallback aggregator owns delivery
-  to configured plugins. The fallback is the hosted-build default. Plugin
-  failures are retained and must not break lead processing.
+- `ai_logger.LogAggregator` or the built-in fallback aggregator owns local
+  plugin delivery. The application owns a small built-in HTTP plugin for
+  `AI_LOGGER_SERVER_URL`, so `/ingest` delivery has the same JSON payload in
+  development and hosted Docker builds. Plugin failures are retained and must
+  not break lead processing.
 - `AI_LOGGER_*` environment variables configure forwarding. Use
   `AI_LOGGER_JSONL_PATH` for JSON Lines, `AI_LOGGER_SERVER_URL` for the separate
   `ai_logger` ingest server, and `AI_LOGGER_SERVER_TOKEN` when the ingest server
@@ -29,6 +31,14 @@ and storage query organization in Module 2.
 - `/api/admin/logs` exposes only sanitized log details. Secret-like keys such as
   tokens, API keys, passwords, and secrets must be redacted before the response
   leaves the backend.
+- Docker runtime logs are persisted under
+  `$AVITO_LOG_DIR` or `$SHARED_DIR/avito-bot/logs`. `runtime.log` captures
+  Uvicorn startup, shutdown, tracebacks, and access records while `events.jsonl`
+  captures sanitized application events. Both files use size-based rotation;
+  defaults are 5 MiB per active file and five retained backups.
+- Runtime log files supplement, but do not replace, stdout/stderr delivery to
+  the hosting panel. A startup failure must remain visible in Bothost logs even
+  when the persistent log directory cannot be written.
 - The admin buffer remains in memory for current runtime diagnostics. Durable
   business events, handoff records, manager actions, and Avito sync data remain
   in `RuntimeStore`.

@@ -1,5 +1,6 @@
 import json
 
+import app.admin_logging as admin_logging
 from app.admin_logging import AdminLogBuffer, create_runtime_logger, safe_log_detail
 
 
@@ -73,3 +74,41 @@ def test_runtime_logger_keeps_admin_log_when_external_plugin_fails() -> None:
 
     assert buffer.list()["logs"][0]["event"] == "still-recorded"
     assert logger.aggregator.failed_records[0][1] == "broken"
+
+
+def test_runtime_logger_sends_sanitized_events_to_ai_logger_ingest(monkeypatch) -> None:
+    requests = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    def fake_urlopen(request, timeout):
+        requests.append((request, timeout))
+        return Response()
+
+    monkeypatch.setattr(admin_logging, "urlopen", fake_urlopen)
+    buffer = AdminLogBuffer(maxlen=10)
+    logger = create_runtime_logger(
+        "tests.runtime",
+        admin_buffer=buffer,
+        environ={
+            "AI_LOGGER_SERVER_URL": "http://logger.test/ingest",
+            "AI_LOGGER_SERVER_TOKEN": "test-token",
+        },
+        context={"project": "avito-bot"},
+    )
+
+    logger.info("event", detail=safe_log_detail({"api_key": "secret", "ok": "visible"}))
+
+    request, timeout = requests[0]
+    payload = json.loads(request.data.decode("utf-8"))
+    assert timeout == 3
+    assert request.full_url == "http://logger.test/ingest"
+    assert request.get_header("Authorization") == "Bearer test-token"
+    assert payload["logger"] == "tests.runtime"
+    assert payload["context"]["detail"] == {"api_key": "<redacted>", "ok": "visible"}
+    assert payload["message"] == "event"

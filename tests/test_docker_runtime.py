@@ -30,6 +30,6 @@ def test_compose_persists_state_at_the_image_data_path() -> None:
 def test_entrypoint_execs_the_immutable_python_runtime() -> None:
     entrypoint = (ROOT / "docker-entrypoint.sh").read_text(encoding="utf-8")
 
-    assert "exec /opt/avito-bot/.venv/bin/python -m uvicorn" in entrypoint
-    assert '--host "$host"' in entrypoint
-    assert '--port "$port"' in entrypoint
+    assert 'log_dir="${AVITO_LOG_DIR:-${shared_dir%/}/avito-bot/logs}"' in entrypoint
+    assert 'mkdir -p "$log_dir"' in entrypoint
+    assert "exec /opt/avito-bot/.venv/bin/python -m app.server" in entrypoint

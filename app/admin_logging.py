@@ -4,8 +4,12 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import json
+import os
 from pathlib import Path
 from typing import Any, Mapping
+from urllib.request import Request, urlopen
+
+from app.runtime_logging import configured_log_dir, log_rotation_settings
 
 try:
     from ai_logger import LogRecord, Logger, build_aggregator_from_env
@@ -48,7 +52,7 @@ except ImportError:  # pragma: no cover - exercised in container builds without 
         def __init__(self, *, default_context: dict[str, Any] | None = None) -> None:
             self.default_context = default_context or {}
             self.plugins: list[Any] = []
-            self.failed_records: list[tuple[LogRecord, str, str]] = []
+            self.failed_records: deque[tuple[LogRecord, str, str]] = deque(maxlen=100)
 
         def add_plugin(self, plugin: Any) -> None:
             self.plugins.append(plugin)
@@ -88,12 +92,86 @@ except ImportError:  # pragma: no cover - exercised in container builds without 
         environ: Mapping[str, str] | None = None,
         default_context: dict[str, Any] | None = None,
     ) -> _LogAggregator:
-        env = environ or {}
+        env = environ if environ is not None else os.environ
         aggregator = _LogAggregator(default_context=default_context)
         jsonl_path = env.get("AI_LOGGER_JSONL_PATH")
         if jsonl_path:
             aggregator.add_plugin(_JsonlPlugin(jsonl_path))
         return aggregator
+
+
+class _HttpPlugin:
+    name = "http"
+
+    def __init__(self, url: str, token: str | None = None, logger_name: str | None = None) -> None:
+        self.url = url
+        self.token = token
+        self.logger_name = logger_name
+
+    def emit(self, record: LogRecord) -> None:
+        payload = json.dumps(
+            {
+                "timestamp": record.timestamp.isoformat(),
+                "level": record.level.name,
+                "message": record.message,
+                "context": record.context,
+                "logger": self.logger_name,
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        request = Request(self.url, data=payload, headers=headers, method="POST")
+        with urlopen(request, timeout=3):
+            pass
+
+    def flush(self) -> None:
+        return None
+
+    def close(self) -> None:
+        self.flush()
+
+
+class _RotatingJsonlPlugin:
+    name = "jsonl"
+
+    def __init__(self, path: Path, *, max_bytes: int, backup_count: int) -> None:
+        self.path = path
+        self.max_bytes = max_bytes
+        self.backup_count = backup_count
+
+    def emit(self, record: LogRecord) -> None:
+        payload = json.dumps(
+            {
+                "timestamp": record.timestamp.isoformat(),
+                "level": record.level.name,
+                "message": record.message,
+                "context": record.context,
+            },
+            ensure_ascii=False,
+        ) + "\n"
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._rotate_if_needed(len(payload.encode("utf-8")))
+        with self.path.open("a", encoding="utf-8") as file:
+            file.write(payload)
+
+    def _rotate_if_needed(self, incoming_bytes: int) -> None:
+        if not self.path.exists() or self.path.stat().st_size + incoming_bytes <= self.max_bytes:
+            return
+        oldest = self.path.with_name(f"{self.path.name}.{self.backup_count}")
+        oldest.unlink(missing_ok=True)
+        for index in range(self.backup_count - 1, 0, -1):
+            source = self.path.with_name(f"{self.path.name}.{index}")
+            if source.exists():
+                source.replace(self.path.with_name(f"{self.path.name}.{index + 1}"))
+        self.path.replace(self.path.with_name(f"{self.path.name}.1"))
+
+    def flush(self) -> None:
+        return None
+
+    def close(self) -> None:
+        self.flush()
 
 
 SECRET_KEY_PARTS = ("token", "secret", "password", "key", "authorization", "cookie")
@@ -158,7 +236,28 @@ def create_runtime_logger(
     environ: Mapping[str, str] | None = None,
     context: dict[str, Any] | None = None,
 ) -> Logger:
-    aggregator = build_aggregator_from_env(environ, default_context=context)
+    effective_environ = environ if environ is not None else os.environ
+    # Keep HTTP delivery stable whether the optional ai_logger package is
+    # installed or the Docker fallback is active.
+    plugin_environ = dict(effective_environ)
+    server_url = plugin_environ.pop("AI_LOGGER_SERVER_URL", None)
+    server_token = plugin_environ.pop("AI_LOGGER_SERVER_TOKEN", None)
+    jsonl_path = plugin_environ.pop("AI_LOGGER_JSONL_PATH", None)
+    aggregator = build_aggregator_from_env(plugin_environ, default_context=context)
+    log_dir = configured_log_dir(effective_environ)
+    if jsonl_path:
+        events_path = Path(jsonl_path)
+        if not events_path.is_absolute():
+            raise ValueError("AI_LOGGER_JSONL_PATH must be an absolute path")
+    elif log_dir is not None:
+        events_path = log_dir / "events.jsonl"
+    else:
+        events_path = None
+    if events_path is not None:
+        max_bytes, backup_count = log_rotation_settings(effective_environ)
+        aggregator.add_plugin(_RotatingJsonlPlugin(events_path, max_bytes=max_bytes, backup_count=backup_count))
+    if server_url:
+        aggregator.add_plugin(_HttpPlugin(server_url, server_token, logger_name=name))
     aggregator.add_plugin(admin_buffer)
     return Logger(name, aggregator)
 

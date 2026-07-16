@@ -28,6 +28,9 @@ contract.
   `PORT`/`API_PORT` and uses `exec`, making the server process PID 1.
 - Define the `/api/health` check in the Dockerfile itself. Compose may repeat
   the same check for local operation but cannot be its only owner.
+- Create `/app/data/avito-bot/logs` before application startup. Persist rotating
+  `runtime.log` and `events.jsonl` there while retaining stdout/stderr output for
+  the Bothost runtime-log panel.
 - Use a project-supported stable Python runtime. The hosted image currently
   uses Python 3.12, matching `requires-python >=3.12`.
 

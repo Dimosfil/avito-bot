@@ -190,9 +190,10 @@ Data/API contract:
   and forwards sanitized events to `ai_logger.Logger` only when the package is
   already available from development tooling or a bundled runtime artifact.
   Hosted Docker/runtime installs must not fetch `ai_logger` from Git.
-- `ai_logger.LogAggregator` owns plugin delivery to JSONL, HTTP, or the
-  separate ingest server when the external package is installed. The built-in
-  fallback supports the local JSONL path and admin in-memory buffer.
+- `ai_logger.LogAggregator` owns optional local plugin delivery. The app's
+  built-in HTTP plugin sends the same compact JSON record to the separate ingest
+  server in both external-package and Docker-fallback modes; the fallback also
+  supports the local JSONL path and admin in-memory buffer.
 - Configure `AI_LOGGER_SERVER_URL` to send records to the standalone
   `ai_logger` server `/ingest`; configure `AI_LOGGER_JSONL_PATH` for direct
   local JSON Lines output.

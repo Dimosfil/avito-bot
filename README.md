@@ -143,6 +143,18 @@ Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/storage/backup"
 docker compose down
 ```
 
+The Docker entrypoint creates persistent diagnostics under
+`/app/data/avito-bot/logs` (the host `.codex-runtime/logs` folder in local
+Compose):
+
+- `runtime.log` contains Uvicorn startup, shutdown, errors, and HTTP access;
+- `events.jsonl` contains sanitized application events.
+
+Both files rotate at 5 MiB and retain five backups by default. Configure
+`AVITO_LOG_DIR`, `AVITO_LOG_MAX_BYTES`, and `AVITO_LOG_BACKUP_COUNT` to override
+those values. `AI_LOGGER_SERVER_URL` remains optional and is not required for
+local or hosted file diagnostics.
+
 Migrate existing local SQLite runtime state into PostgreSQL before switching a
 host to `DATABASE_URL`:
 
