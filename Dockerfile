@@ -1,25 +1,39 @@
-FROM python:3.14-slim AS runtime
+FROM python:3.12-slim AS builder
 
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV UV_SYSTEM_PYTHON=1
 ENV UV_LINK_MODE=copy
 
-WORKDIR /app
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends git ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+WORKDIR /opt/avito-bot
 
 RUN pip install --no-cache-dir uv
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --no-install-project \
+    && test -x /opt/avito-bot/.venv/bin/python
 
+
+FROM python:3.12-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/avito-bot/.venv/bin:${PATH}" \
+    SHARED_DIR=/app/data
+
+WORKDIR /opt/avito-bot
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /opt/avito-bot/.venv ./.venv
 COPY app ./app
+COPY docker-entrypoint.sh /usr/local/bin/avito-bot-entrypoint
 
-RUN mkdir -p /app/.codex-runtime
+RUN chmod +x /usr/local/bin/avito-bot-entrypoint \
+    && mkdir -p /app/data /opt/avito-bot/.codex-runtime
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "uv run uvicorn app.main:app --host ${API_HOST:-0.0.0.0} --port ${PORT:-${API_PORT:-8000}}"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD python -c "import json, os, urllib.request; port=os.getenv('PORT') or os.getenv('API_PORT') or '8000'; response=urllib.request.urlopen(f'http://127.0.0.1:{port}/api/health', timeout=3); raise SystemExit(0 if json.load(response).get('status') == 'ok' else 1)"
+
+CMD ["avito-bot-entrypoint"]

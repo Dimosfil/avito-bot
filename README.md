@@ -79,8 +79,16 @@ http://127.0.0.1:8010
 ## Host Docker Runtime
 
 The project root can also run as a single Docker service. The container starts
-FastAPI/Uvicorn, serves the static manager UI, and keeps bot runtime state in a
-mounted `.codex-runtime/` folder unless external storage is configured.
+FastAPI/Uvicorn, serves the static manager UI, and keeps bot runtime state in
+the host `.codex-runtime/` folder mounted at `/app/data/avito-bot` unless
+external storage is configured.
+
+The production image keeps application code and its virtual environment under
+`/opt/avito-bot`, outside Bothost's `/app` bind mount. `/app/data` is reserved
+for persistent runtime data. The image starts Uvicorn as PID 1 through an
+`exec` entrypoint and includes its own `/api/health` Docker health check, so
+these guarantees also apply when the host deploys the Dockerfile without
+Compose.
 
 Prepare host environment:
 
@@ -96,9 +104,11 @@ browser port.
 
 For production state storage, prefer the managed PostgreSQL database from the
 hosting panel and set `DATABASE_URL` to its connection string. If
-`DATABASE_URL` is blank and the host provides shared files through `SHARED_DIR`,
-the app stores SQLite state and backups under `$SHARED_DIR/avito-bot/`. If
-neither is available, it falls back to `.codex-runtime/`.
+`DATABASE_URL` is blank, the production image defaults `SHARED_DIR` to
+`/app/data`, so SQLite state and backups stay under `/app/data/avito-bot/` on
+Bothost. An explicitly supplied `SHARED_DIR` still overrides the image default.
+Outside the image, when neither external storage variable is available, the
+app falls back to `.codex-runtime/`.
 
 Build and start:
 
